@@ -1,0 +1,10 @@
+{
+  "name": "Remix: Escáner Nutricional Personalizado",
+  "description": "Plataforma de advertencias nutricionales personalizadas que traduce ingredientes y genera alertas de salud según el perfil de cada usuario.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
