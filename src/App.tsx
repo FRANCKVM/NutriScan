@@ -30,11 +30,12 @@ import {
   Apple,
   X,
   Flashlight,
-  LogOut
+  LogOut,
+  ShieldCheck
 } from 'lucide-react';
 import { HEALTH_CONDITIONS } from './data';
 import productsData from './products.json';
-import { AnalysisResult, HealthConditionId, ProductPreset, ScannedHistoryItem } from './types';
+import { AnalysisResult, HealthConditionId, PersonalizedWarning, ProductPreset, ScannedHistoryItem } from './types';
 import HealthProfile from './components/HealthProfile';
 import AdditiveGlossary from './components/AdditiveGlossary';
 
@@ -44,6 +45,8 @@ const AUTH_STORAGE_KEY = 'nutriscan_auth_session';
 const HISTORY_STORAGE_KEY = 'nutriscan_scanned_history';
 const LEGACY_HISTORY_STORAGE_KEY = 'oasis_scanned_history';
 const CAMERA_STORAGE_KEY = 'nutriscan_selected_camera_id';
+const HEALTH_FILTERS_STORAGE_KEY = 'nutriscan_health_filters';
+const HEALTH_ONBOARDING_STORAGE_KEY = 'nutriscan_health_onboarding_complete';
 const PRODUCT_BADGES: Record<string, string> = {
   cocacola: 'CC',
   incakola: 'IK',
@@ -74,6 +77,16 @@ const NATIVE_BARCODE_FORMATS = [
   'itf',
   'codabar'
 ];
+const CONDITION_KEYWORDS: Record<HealthConditionId, string[]> = {
+  diabetes: ['diab', 'gluc', 'azucar', 'glucem'],
+  hypertension: ['hiper', 'presion', 'sodi', 'cardio'],
+  pregnancy: ['emba', 'gest', 'cafeina'],
+  celiac: ['gluten', 'celiac', 'trigo', 'cebada', 'centeno'],
+  lactose: ['lacto', 'leche', 'lacteo', 'suero'],
+  vegan: ['vega', 'animal', 'leche', 'carm', 'gelatina', 'huevo'],
+  child: ['nin', 'infan', 'menor', 'tartr', 'colorante', 'cafeina'],
+  athlete: ['depor', 'atlet', 'rendi', 'prote', 'recuper']
+};
 
 interface AuthSession {
   name: string;
@@ -115,6 +128,157 @@ type NativeBarcodeDetectorConstructor = {
   getSupportedFormats?: () => Promise<string[]>;
 };
 
+const normalizeText = (value: string) => value.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+const parseAmount = (value?: string) => {
+  if (!value) return 0;
+  const normalized = value.replace(',', '.');
+  const match = normalized.match(/[\d.]+/);
+  return match ? Number(match[0]) : 0;
+};
+
+const warningMatchesCondition = (warning: PersonalizedWarning, condition: HealthConditionId) => {
+  const words = normalizeText(`${warning.condition} ${warning.message}`);
+  return CONDITION_KEYWORDS[condition].some((keyword) => words.includes(keyword));
+};
+
+const addUniqueWarning = (warnings: PersonalizedWarning[], warning: PersonalizedWarning) => {
+  const key = normalizeText(`${warning.condition}-${warning.message}`);
+  if (!warnings.some((item) => normalizeText(`${item.condition}-${item.message}`) === key)) {
+    warnings.push(warning);
+  }
+};
+
+const createDerivedWarnings = (product: ProductPreset, conditions: HealthConditionId[]) => {
+  const warnings: PersonalizedWarning[] = [];
+  const ingredients = normalizeText(product.ingredientsText);
+  const octogons = normalizeText(product.analysis.octogons.join(' '));
+  const additives = normalizeText(product.analysis.additives.map((additive) => `${additive.code} ${additive.purpose} ${additive.explanation}`).join(' '));
+  const sugar = parseAmount(product.analysis.macronutrients.sugar);
+  const sodium = parseAmount(product.analysis.macronutrients.sodium);
+  const saturatedFat = parseAmount(product.analysis.macronutrients.saturatedFat);
+  const protein = parseAmount(product.analysis.macronutrients.protein);
+
+  for (const condition of conditions) {
+    if (condition === 'diabetes') {
+      if (octogons.includes('azucar') || sugar >= 10 || ingredients.includes('azucar') || ingredients.includes('jarabe')) {
+        addUniqueWarning(warnings, {
+          condition: 'Diabetes / Control glucemico',
+          severity: sugar >= 20 || octogons.includes('azucar') ? 'danger' : 'warning',
+          message: 'El producto puede afectar el control de glucosa por azucares libres o carbohidratos de rapida absorcion.'
+        });
+      }
+    }
+
+    if (condition === 'hypertension') {
+      if (octogons.includes('sodio') || sodium >= 200 || ingredients.includes('sal') || ingredients.includes('sodio')) {
+        addUniqueWarning(warnings, {
+          condition: 'Hipertension arterial',
+          severity: octogons.includes('sodio') || sodium >= 300 ? 'danger' : 'warning',
+          message: 'Revisa la porcion: el sodio puede dificultar el control de presion arterial.'
+        });
+      }
+    }
+
+    if (condition === 'pregnancy') {
+      if (ingredients.includes('cafeina') || additives.includes('cafeina') || additives.includes('benzoato') || additives.includes('tartrazina')) {
+        addUniqueWarning(warnings, {
+          condition: 'Embarazo',
+          severity: ingredients.includes('cafeina') ? 'warning' : 'info',
+          message: 'Conviene moderar cafeina, conservantes y colorantes durante el embarazo; prioriza opciones simples e hidratacion.'
+        });
+      }
+    }
+
+    if (condition === 'celiac') {
+      if (ingredients.includes('gluten') || ingredients.includes('trigo') || ingredients.includes('cebada') || ingredients.includes('centeno') || ingredients.includes('harina')) {
+        addUniqueWarning(warnings, {
+          condition: 'Alergia al gluten / celiaco',
+          severity: 'danger',
+          message: 'Contiene o puede contener ingredientes con gluten; no es adecuado para enfermedad celiaca sin certificacion.'
+        });
+      }
+    }
+
+    if (condition === 'lactose') {
+      if (ingredients.includes('leche') || ingredients.includes('lactosa') || ingredients.includes('suero') || ingredients.includes('lacteo')) {
+        addUniqueWarning(warnings, {
+          condition: 'Intolerancia a la lactosa',
+          severity: 'danger',
+          message: 'Contiene ingredientes lacteos que pueden causar sintomas digestivos si tienes intolerancia a la lactosa.'
+        });
+      }
+    }
+
+    if (condition === 'vegan') {
+      if (ingredients.includes('leche') || ingredients.includes('huevo') || ingredients.includes('gelatina') || ingredients.includes('carmin') || additives.includes('cochinilla')) {
+        addUniqueWarning(warnings, {
+          condition: 'Estilo vegano',
+          severity: 'warning',
+          message: 'Revisa la etiqueta: declara o puede incluir ingredientes de origen animal.'
+        });
+      } else {
+        addUniqueWarning(warnings, {
+          condition: 'Estilo vegano',
+          severity: 'info',
+          message: 'No se detectan ingredientes animales evidentes en la informacion disponible.'
+        });
+      }
+    }
+
+    if (condition === 'child') {
+      if (octogons.includes('azucar') || sugar >= 10 || additives.includes('tartrazina') || ingredients.includes('cafeina') || additives.includes('colorante')) {
+        addUniqueWarning(warnings, {
+          condition: 'Nutricion infantil / menores',
+          severity: octogons.includes('azucar') || ingredients.includes('cafeina') ? 'danger' : 'warning',
+          message: 'No es ideal para menores por azucares, estimulantes o aditivos sensibles para poblacion infantil.'
+        });
+      }
+    }
+
+    if (condition === 'athlete') {
+      if (protein >= 5) {
+        addUniqueWarning(warnings, {
+          condition: 'Rendimiento deportivo / atleta',
+          severity: 'info',
+          message: 'Aporta proteina util para recuperacion, pero evalua porcion, sodio y calidad general del producto.'
+        });
+      } else if (octogons.includes('azucar') || octogons.includes('grasas') || saturatedFat >= 4 || sodium >= 250) {
+        addUniqueWarning(warnings, {
+          condition: 'Rendimiento deportivo / atleta',
+          severity: 'warning',
+          message: 'Puede aportar energia rapida o sodio, pero no es una opcion completa para rendimiento o recuperacion.'
+        });
+      }
+    }
+  }
+
+  return warnings;
+};
+
+const buildTailoredResult = (product: ProductPreset, conditions: HealthConditionId[]): AnalysisResult => {
+  const selectedWarnings = product.analysis.personalizedWarnings.filter((warning) => (
+    conditions.some((condition) => warningMatchesCondition(warning, condition))
+  ));
+  const derivedWarnings = createDerivedWarnings(product, conditions);
+  const personalizedWarnings = [...selectedWarnings];
+
+  derivedWarnings.forEach((warning) => addUniqueWarning(personalizedWarnings, warning));
+
+  return {
+    ...product.analysis,
+    personalizedWarnings: personalizedWarnings.length > 0 ? personalizedWarnings : [
+      {
+        condition: conditions.length > 0 ? 'Perfil de salud' : 'General',
+        severity: 'info',
+        message: conditions.length > 0
+          ? 'No se detectaron alertas criticas para los filtros seleccionados con la informacion disponible.'
+          : 'Activa restricciones u objetivos de salud para recibir alertas personalizadas.'
+      }
+    ]
+  };
+};
+
 export default function App() {
   // Mobile app tabs
   const [activeTab, setActiveTab] = useState<'escanear' | 'perfil' | 'glosario' | 'historial'>('escanear');
@@ -132,7 +296,29 @@ export default function App() {
   const [loginError, setLoginError] = useState<string | null>(null);
   
   // App states
-  const [activeConditions, setActiveConditions] = useState<HealthConditionId[]>(['diabetes', 'hypertension']);
+  const [activeConditions, setActiveConditions] = useState<HealthConditionId[]>(() => {
+    try {
+      const stored = localStorage.getItem(HEALTH_FILTERS_STORAGE_KEY);
+      if (!stored) return [];
+
+      const validIds = new Set(HEALTH_CONDITIONS.map((condition) => condition.id));
+      const parsed = JSON.parse(stored);
+      return Array.isArray(parsed)
+        ? parsed.filter((id): id is HealthConditionId => validIds.has(id))
+        : [];
+    } catch (error) {
+      console.error('Error reading health filters from localStorage', error);
+      return [];
+    }
+  });
+  const [hasCompletedHealthOnboarding, setHasCompletedHealthOnboarding] = useState(() => {
+    try {
+      return localStorage.getItem(HEALTH_ONBOARDING_STORAGE_KEY) === 'true';
+    } catch (error) {
+      console.error('Error reading health onboarding state from localStorage', error);
+      return false;
+    }
+  });
   const [customText, setCustomText] = useState('');
   const [productNameInput, setProductNameInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
@@ -240,44 +426,31 @@ export default function App() {
 
   // Toggle profile filters
   const handleToggleCondition = (id: HealthConditionId) => {
-    if (activeConditions.includes(id)) {
-      setActiveConditions(activeConditions.filter(c => c !== id));
-    } else {
-      setActiveConditions([...activeConditions, id]);
-    }
+    setActiveConditions((previous) => {
+      const next = previous.includes(id)
+        ? previous.filter((condition) => condition !== id)
+        : [...previous, id];
+
+      localStorage.setItem(HEALTH_FILTERS_STORAGE_KEY, JSON.stringify(next));
+      return next;
+    });
   };
 
-  const applyProduct = (product: ProductPreset) => {
-    const tailoredWarnings = product.analysis.personalizedWarnings.filter((warning) => {
-      const words = warning.condition.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-      return activeConditions.some((condition) => {
-        if (condition === 'diabetes' && words.includes('diab')) return true;
-        if (condition === 'hypertension' && (words.includes('hiper') || words.includes('presio') || words.includes('sodi'))) return true;
-        if (condition === 'pregnancy' && (words.includes('emba') || words.includes('gest'))) return true;
-        if (condition === 'celiac' && (words.includes('gluten') || words.includes('celi'))) return true;
-        if (condition === 'lactose' && (words.includes('lacto') || words.includes('leche'))) return true;
-        if (condition === 'vegan' && (words.includes('vega') || words.includes('anim'))) return true;
-        if (condition === 'child' && (words.includes('nin') || words.includes('infan') || words.includes('tartr'))) return true;
-        if (condition === 'athlete' && (words.includes('depor') || words.includes('atlet') || words.includes('rendi') || words.includes('prote'))) return true;
-        return false;
-      }) || warning.severity === 'info';
-    });
+  const completeHealthOnboarding = () => {
+    localStorage.setItem(HEALTH_FILTERS_STORAGE_KEY, JSON.stringify(activeConditions));
+    localStorage.setItem(HEALTH_ONBOARDING_STORAGE_KEY, 'true');
+    setHasCompletedHealthOnboarding(true);
+  };
 
-    const tailoredResult: AnalysisResult = {
-      ...product.analysis,
-      personalizedWarnings: tailoredWarnings.length > 0 ? tailoredWarnings : [
-        {
-          condition: 'General',
-          severity: 'info',
-          message: 'No se detectaron riesgos criticos especificos para tu configuracion de salud actual.'
-        }
-      ]
-    };
-
+  const applyProduct = (product: ProductPreset, options: { saveHistory?: boolean } = {}) => {
+    const { saveHistory = true } = options;
+    const tailoredResult = buildTailoredResult(product, activeConditions);
     setCurrentResult(tailoredResult);
     setCustomText(product.ingredientsText);
     setProductNameInput(product.name);
-    saveToHistory(product.name, product.brand, tailoredResult);
+    if (saveHistory) {
+      saveToHistory(product.name, product.brand, tailoredResult);
+    }
     setSelectedProductId(product.id);
   };
 
@@ -673,6 +846,15 @@ export default function App() {
   }, [isLoading]);
 
   useEffect(() => {
+    if (!currentResult || !selectedProductId) return;
+
+    const selectedProduct = PRODUCT_CATALOG.find((product) => product.id === selectedProductId);
+    if (!selectedProduct) return;
+
+    setCurrentResult(buildTailoredResult(selectedProduct, activeConditions));
+  }, [activeConditions, selectedProductId]);
+
+  useEffect(() => {
     if (!showCamera) {
       return;
     }
@@ -844,6 +1026,81 @@ export default function App() {
                 Tu sesion se mantendra activa en este dispositivo.
               </p>
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasCompletedHealthOnboarding) {
+    return (
+      <div className="min-h-[100dvh] bg-[#F8F5F2] text-[#433F3E] flex flex-col justify-center items-center font-sans relative p-0 sm:p-4 overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(#7A8B7C_1px,transparent_1px)] [background-size:16px_16px] opacity-10 pointer-events-none" />
+
+        <div className="w-full h-[100dvh] sm:h-[812px] max-w-md bg-[#F8F5F2] border-0 sm:border-8 border-[#E0D8D0] rounded-none sm:rounded-[48px] shadow-none sm:shadow-2xl relative overflow-hidden flex flex-col z-10">
+          <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
+            <div className="space-y-3 pt-2">
+              <div className="w-14 h-14 rounded-2xl bg-[#7A8B7C] text-white flex items-center justify-center shadow-sm">
+                <ShieldCheck className="w-7 h-7" />
+              </div>
+              <div>
+                <h1 className="font-serif text-3xl font-bold text-[#433F3E] leading-tight">Configura tus alertas</h1>
+                <p className="text-xs text-[#433F3E]/65 leading-relaxed mt-2">
+                  Selecciona restricciones y objetivos de salud para adaptar cada analisis de producto a tu perfil.
+                </p>
+              </div>
+            </div>
+
+            <div className="bg-white border border-[#E0D8D0]/70 rounded-3xl p-4 shadow-xs flex items-center justify-between gap-3">
+              <div>
+                <p className="text-[10px] uppercase tracking-wider font-bold text-[#433F3E]/55">Perfil de salud</p>
+                <p className="text-sm font-semibold text-[#433F3E] mt-0.5">
+                  {activeConditions.length === 0 ? 'Sin filtros activos' : `${activeConditions.length} filtro(s) seleccionado(s)`}
+                </p>
+              </div>
+              <span className="w-10 h-10 rounded-2xl bg-[#7A8B7C]/10 text-[#7A8B7C] flex items-center justify-center font-bold text-sm">
+                {activeConditions.length}
+              </span>
+            </div>
+
+            <div className="space-y-2.5">
+              {HEALTH_CONDITIONS.map((condition) => {
+                const isActive = activeConditions.includes(condition.id);
+                return (
+                  <button
+                    key={condition.id}
+                    type="button"
+                    onClick={() => handleToggleCondition(condition.id)}
+                    className={`w-full text-left p-3.5 rounded-2xl border transition-all flex items-start gap-3 bg-white ${
+                      isActive
+                        ? 'border-[#7A8B7C] ring-2 ring-[#7A8B7C]/10 shadow-sm'
+                        : 'border-[#E0D8D0]/70 hover:border-[#7A8B7C]/50'
+                    }`}
+                  >
+                    <div className={`mt-0.5 w-5 h-5 rounded-full border flex items-center justify-center shrink-0 ${
+                      isActive ? 'bg-[#7A8B7C] border-[#7A8B7C]' : 'bg-white border-[#E0D8D0]'
+                    }`}>
+                      {isActive && <Check className="w-3 h-3 text-white stroke-[3px]" />}
+                    </div>
+                    <div className="min-w-0">
+                      <h2 className="text-sm font-bold text-[#433F3E] leading-tight">{condition.label}</h2>
+                      <p className="text-xs text-[#433F3E]/60 mt-1 leading-snug">{condition.description}</p>
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="border-t border-[#E0D8D0]/70 bg-white p-4 pb-[calc(1rem+env(safe-area-inset-bottom))]">
+            <button
+              type="button"
+              onClick={completeHealthOnboarding}
+              className="w-full py-3 rounded-2xl text-xs font-semibold shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer bg-[#7A8B7C] text-white hover:bg-[#697A6B]"
+            >
+              <Check className="w-3.5 h-3.5" />
+              {activeConditions.length === 0 ? 'Continuar sin filtros' : 'Guardar perfil de salud'}
+            </button>
           </div>
         </div>
       </div>
@@ -1051,7 +1308,10 @@ export default function App() {
                           <div className="absolute left-0 top-0 bottom-0 w-1.5 bg-[#7A8B7C]" />
 
                           <button 
-                            onClick={() => setCurrentResult(null)}
+                            onClick={() => {
+                              setCurrentResult(null);
+                              setSelectedProductId(null);
+                            }}
                             className="bg-[#F2EDE9] hover:bg-[#E0D8D0] p-1.5 rounded-full inline-flex items-center justify-center text-[#433F3E]/80 transition-colors mb-3"
                           >
                             <ArrowLeft className="w-4 h-4" />
@@ -1254,7 +1514,10 @@ export default function App() {
                         {/* Reset and examine another */}
                         <div className="flex justify-center pt-2">
                           <button
-                            onClick={() => setCurrentResult(null)}
+                            onClick={() => {
+                              setCurrentResult(null);
+                              setSelectedProductId(null);
+                            }}
                             className="bg-[#7A8B7C] text-white px-6 py-2.5 rounded-2xl text-xs font-semibold hover:shadow-md hover:shadow-[#7A8B7C]/15 transition-all flex items-center gap-1.5"
                           >
                             <RotateCcw className="w-3.5 h-3.5" />
@@ -1472,7 +1735,18 @@ export default function App() {
                             key={item.id}
                             id={`history-item-${item.id}`}
                             onClick={() => {
-                              setCurrentResult(item.result);
+                              const matchedProduct = PRODUCT_CATALOG.find((product) => (
+                                product.name === item.productName
+                                || product.analysis.productName === item.result.productName
+                              ));
+
+                              if (matchedProduct) {
+                                setSelectedProductId(matchedProduct.id);
+                                setCurrentResult(buildTailoredResult(matchedProduct, activeConditions));
+                              } else {
+                                setSelectedProductId(null);
+                                setCurrentResult(item.result);
+                              }
                               setActiveTab('escanear');
                             }}
                             className="bg-white border border-[#E0D8D0]/60 rounded-2xl p-3.5 flex justify-between items-center cursor-pointer hover:border-[#7A8B7C] transition-all"
