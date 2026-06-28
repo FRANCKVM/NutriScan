@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="NutriScan">
+  <rect width="512" height="512" rx="112" fill="#7A8B7C"/>
+  <circle cx="256" cy="256" r="156" fill="#F8F5F2"/>
+  <path d="M256 128c55 39 94 93 94 146 0 58-42 102-94 102s-94-44-94-102c0-53 39-107 94-146z" fill="#D7BAA5"/>
+  <path d="M220 255h72M256 219v72" stroke="#433F3E" stroke-width="28" stroke-linecap="round"/>
+  <path d="M176 408h160" stroke="#F8F5F2" stroke-width="28" stroke-linecap="round"/>
+</svg>

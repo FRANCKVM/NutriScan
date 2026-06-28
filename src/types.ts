@@ -10,7 +10,7 @@ export interface Macronutrients {
 export interface Additive {
   code: string;
   purpose: string;
-  simplifiedRisk: 'Riesgo bajo' | 'Consumo moderado' | 'Evitar en niños' | 'Riesgo alto';
+  simplifiedRisk: 'Riesgo bajo' | 'Consumo moderado' | 'Evitar en ninos' | 'Riesgo alto';
   explanation: string;
 }
 
@@ -37,11 +37,13 @@ export interface ProductPreset {
   id: string;
   name: string;
   brand: string;
+  barcode?: string;
+  barcodes?: string[];
   ingredientsText: string;
-  image: string; // A placeholder identifier or description
-  category: 'Bebidas' | 'Snacks' | 'Lácteos' | 'Cereales' | 'Otros';
+  image: string;
+  category: 'Bebidas' | 'Snacks' | 'Lacteos' | 'Cereales' | 'Otros';
   description: string;
-  mockResult: AnalysisResult; // Prepopulated mock analyses for instant offline high-fidelity preview
+  analysis: AnalysisResult;
 }
 
 export interface ScannedHistoryItem {

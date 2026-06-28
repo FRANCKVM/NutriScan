@@ -1,20 +1,24 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+# NutriScan
 
-# Run and deploy your AI Studio app
-
-This contains everything you need to run your app locally.
-
-View your app in AI Studio: https://ai.studio/apps/82a4e169-9b82-4c02-874c-44e11e81b89b
+App web instalable para escanear codigos de barras y recibir recomendaciones nutricionales personalizadas segun tu perfil de salud.
 
 ## Run Locally
 
-**Prerequisites:**  Node.js
-
+**Prerequisite:** Node.js
 
 1. Install dependencies:
    `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+2. Run the app:
    `npm run dev`
+
+## PWA and GitHub Pages
+
+The app uses `vite-plugin-pwa` and can be installed on Android from Chrome after it is served over HTTPS.
+
+For this repository, production builds use the GitHub Pages base path `/NutriScan/` automatically:
+
+`npm run build`
+
+If you deploy with a custom domain or another path, override it before building:
+
+`VITE_BASE_PATH=/ npm run build`

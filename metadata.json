@@ -1,10 +1,8 @@
 {
-  "name": "Remix: Escáner Nutricional Personalizado",
-  "description": "Plataforma de advertencias nutricionales personalizadas que traduce ingredientes y genera alertas de salud según el perfil de cada usuario.",
+  "name": "NutriScan",
+  "description": "App para escanear codigos de barras y recibir recomendaciones nutricionales personalizadas.",
   "requestFramePermissions": [
     "camera"
   ],
-  "majorCapabilities": [
-    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
-  ]
+  "majorCapabilities": []
 }

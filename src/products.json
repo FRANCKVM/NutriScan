@@ -1,0 +1,357 @@
+{
+  "products": [
+    {
+      "id": "cocacola-original-500ml",
+      "name": "Coca-Cola Original 500 ml",
+      "brand": "The Coca-Cola Company",
+      "barcode": "7750182000014",
+      "barcodes": ["7750182000014", "5449000000996", "7894900010015"],
+      "category": "Bebidas",
+      "image": "cocacola",
+      "description": "Bebida gaseosa sabor cola con alto contenido de azucares.",
+      "ingredientsText": "Agua carbonatada, azucar, colorante caramelo IV, acidulante acido fosforico, saborizantes naturales, cafeina.",
+      "analysis": {
+        "productName": "Coca-Cola Original 500 ml",
+        "brand": "The Coca-Cola Company",
+        "nutritionalSummary": "Bebida azucarada ultraprocesada con alto aporte de azucares libres y sin proteinas, fibra ni micronutrientes relevantes.",
+        "processingLevel": "NOVA 4 (Productos ultraprocesados)",
+        "processingExplanation": "Combina agua carbonatada con azucar refinada, colorante, acidulante, saborizantes y cafeina para lograr sabor, color y conservacion estable.",
+        "macronutrients": {
+          "calories": "210 kcal",
+          "saturatedFat": "0 g",
+          "sugar": "53 g",
+          "sodium": "25 mg",
+          "protein": "0 g",
+          "carbohydrates": "53 g"
+        },
+        "octogons": ["ALTO EN AZUCAR"],
+        "additives": [
+          {
+            "code": "Caramelo IV (E-150d)",
+            "purpose": "Colorante",
+            "simplifiedRisk": "Consumo moderado",
+            "explanation": "Aporta el color oscuro caracteristico de la bebida. Se recomienda moderar su consumo dentro de una dieta diaria."
+          },
+          {
+            "code": "Acido fosforico (E-338)",
+            "purpose": "Acidulante",
+            "simplifiedRisk": "Consumo moderado",
+            "explanation": "Da acidez y equilibra el sabor dulce. En consumo frecuente puede desplazar bebidas mas nutritivas."
+          },
+          {
+            "code": "Cafeina",
+            "purpose": "Estimulante",
+            "simplifiedRisk": "Consumo moderado",
+            "explanation": "Puede aumentar el estado de alerta. Conviene limitarla en ninos, embarazo o personas sensibles a estimulantes."
+          }
+        ],
+        "personalizedWarnings": [
+          {
+            "condition": "Diabetes",
+            "severity": "danger",
+            "message": "Contiene una carga alta de azucares libres; puede elevar la glucosa rapidamente."
+          },
+          {
+            "condition": "Hipertension",
+            "severity": "info",
+            "message": "No destaca por sodio, pero el consumo frecuente de bebidas azucaradas puede afectar el control cardiometabolico."
+          },
+          {
+            "condition": "Embarazo",
+            "severity": "warning",
+            "message": "Aporta cafeina y mucho azucar. Es mejor priorizar agua, infusiones sin azucar o bebidas sin cafeina."
+          },
+          {
+            "condition": "Nutricion Infantil",
+            "severity": "danger",
+            "message": "No recomendado para ninos por su alto contenido de azucar y presencia de cafeina."
+          },
+          {
+            "condition": "Atleta",
+            "severity": "warning",
+            "message": "Aporta energia rapida, pero sin electrolitos ni nutrientes utiles para recuperacion deportiva."
+          },
+          {
+            "condition": "Vegano",
+            "severity": "info",
+            "message": "No declara ingredientes de origen animal en su composicion."
+          }
+        ],
+        "recommendation": "Para consumo diario, prefiere agua fria, agua con gas sin azucar o una bebida casera con limon. Reserva Coca-Cola para ocasiones puntuales."
+      }
+    },
+    {
+      "id": "incakola",
+      "name": "Gaseosa Inca Kola Original",
+      "brand": "The Coca-Cola Company / Lindley",
+      "barcode": "7750495000267",
+      "barcodes": ["7750495000267", "7750182000021"],
+      "category": "Bebidas",
+      "image": "incakola",
+      "description": "Bebida gasificada tradicional peruana.",
+      "ingredientsText": "Agua carbonatada, azucar, acidulante acido citrico, benzoato de sodio, cafeina, tartrazina y aromatizantes.",
+      "analysis": {
+        "productName": "Inca Kola Original 350 ml",
+        "brand": "Lindley / Coca-Cola",
+        "nutritionalSummary": "Bebida carbonatada con alto contenido de azucar, calorias vacias y aditivos sinteticos.",
+        "processingLevel": "NOVA 4 (Productos ultraprocesados)",
+        "processingExplanation": "Contiene azucares refinados disueltos en agua carbonatada, colorantes y conservantes para estabilidad y sabor.",
+        "macronutrients": {
+          "calories": "143 kcal",
+          "saturatedFat": "0 g",
+          "sugar": "36 g",
+          "sodium": "40 mg",
+          "protein": "0 g",
+          "carbohydrates": "36 g"
+        },
+        "octogons": ["ALTO EN AZUCAR"],
+        "additives": [
+          {
+            "code": "E-102 (Tartrazina)",
+            "purpose": "Colorante sintetico amarillo",
+            "simplifiedRisk": "Evitar en ninos",
+            "explanation": "Puede causar molestias en personas sensibles y se recomienda limitarla en poblacion infantil."
+          },
+          {
+            "code": "E-211 (Benzoato de Sodio)",
+            "purpose": "Conservante",
+            "simplifiedRisk": "Consumo moderado",
+            "explanation": "Ayuda a prevenir crecimiento microbiano, pero conviene moderar su consumo frecuente."
+          },
+          {
+            "code": "Cafeina",
+            "purpose": "Estimulante",
+            "simplifiedRisk": "Consumo moderado",
+            "explanation": "Estimulante del sistema nervioso central; no aconsejable en ninos pequenos ni gestantes sensibles."
+          }
+        ],
+        "personalizedWarnings": [
+          {
+            "condition": "Diabetes",
+            "severity": "danger",
+            "message": "Contiene una cantidad alta de azucar por porcion y puede elevar la glucosa rapidamente."
+          },
+          {
+            "condition": "Nutricion Infantil",
+            "severity": "danger",
+            "message": "Contiene tartrazina y cafeina; no es recomendable para consumo infantil frecuente."
+          },
+          {
+            "condition": "Atleta",
+            "severity": "warning",
+            "message": "Aporta energia rapida, pero sin nutrientes utiles para recuperacion o rendimiento sostenido."
+          }
+        ],
+        "recommendation": "Sustituye por agua mineral con gas, chicha morada natural sin azucar refinada o infusiones frias."
+      }
+    },
+    {
+      "id": "sublime",
+      "name": "Chocolatina Sublime Clasico",
+      "brand": "Nestle Peru",
+      "barcode": "7750243060011",
+      "barcodes": ["7750243060011"],
+      "category": "Snacks",
+      "image": "chocolate",
+      "description": "Chocolate con leche y mani.",
+      "ingredientsText": "Azucar, manteca de cacao, pasta de cacao, mani tostado, leche entera en polvo, suero de leche, grasa vegetal, lecitina de soya, polirricinoleato de poliglicerol y vainillina.",
+      "analysis": {
+        "productName": "Chocolate Sublime Clasico",
+        "brand": "Nestle Peru",
+        "nutritionalSummary": "Golosina con azucares, grasas y calorias concentradas; aporta poca saciedad para su densidad energetica.",
+        "processingLevel": "NOVA 4 (Productos ultraprocesados)",
+        "processingExplanation": "Combina azucares, grasas, lacteos en polvo, saborizantes y emulsionantes industriales.",
+        "macronutrients": {
+          "calories": "162 kcal",
+          "saturatedFat": "5.8 g",
+          "sugar": "14.5 g",
+          "sodium": "28 mg",
+          "protein": "2.5 g",
+          "carbohydrates": "17 g"
+        },
+        "octogons": ["ALTO EN AZUCAR", "ALTO EN GRASAS SATURADAS"],
+        "additives": [
+          {
+            "code": "E-322 (Lecitina de Soya)",
+            "purpose": "Emulsionante",
+            "simplifiedRisk": "Riesgo bajo",
+            "explanation": "Ayuda a mantener textura homogenea y suele considerarse de bajo riesgo."
+          },
+          {
+            "code": "E-476 (Polirricinoleato de Poliglicerol)",
+            "purpose": "Emulsionante",
+            "simplifiedRisk": "Consumo moderado",
+            "explanation": "Mejora la textura del chocolate; se recomienda moderar ultraprocesados que lo incluyan."
+          }
+        ],
+        "personalizedWarnings": [
+          {
+            "condition": "Diabetes",
+            "severity": "danger",
+            "message": "Tiene azucar anadida y puede afectar el control de glucosa."
+          },
+          {
+            "condition": "Intolerancia a la Lactosa",
+            "severity": "warning",
+            "message": "Contiene leche entera en polvo y suero de leche."
+          },
+          {
+            "condition": "Hipertension",
+            "severity": "info",
+            "message": "Su sodio no es alto, pero el exceso de grasas saturadas puede afectar el perfil cardiovascular."
+          }
+        ],
+        "recommendation": "Elige chocolate oscuro con mayor porcentaje de cacao y menos azucar, en porciones pequenas."
+      }
+    },
+    {
+      "id": "sodafield",
+      "name": "Galletas de Soda Field",
+      "brand": "Mondelez Peru",
+      "barcode": "7750091000009",
+      "barcodes": ["7750091000009"],
+      "category": "Snacks",
+      "image": "soda",
+      "description": "Galleta salada tradicional.",
+      "ingredientsText": "Harina de trigo enriquecida, grasa de palma, jarabe de azucar invertido, sal, bicarbonato de amonio, bicarbonato de sodio, levadura y lecitina de soya.",
+      "analysis": {
+        "productName": "Galletas de Soda Field",
+        "brand": "Mondelez Peru",
+        "nutritionalSummary": "Galletas saladas con harina refinada y sodio elevado para una porcion pequena.",
+        "processingLevel": "NOVA 3 (Alimentos procesados)",
+        "processingExplanation": "Usa harina refinada, grasa vegetal, sal y agentes leudantes para textura y conservacion.",
+        "macronutrients": {
+          "calories": "135 kcal",
+          "saturatedFat": "2.5 g",
+          "sugar": "1.2 g",
+          "sodium": "310 mg",
+          "protein": "2.8 g",
+          "carbohydrates": "24 g"
+        },
+        "octogons": ["ALTO EN SODIO"],
+        "additives": [
+          {
+            "code": "E-500ii (Bicarbonato de Sodio)",
+            "purpose": "Gasificante",
+            "simplifiedRisk": "Riesgo bajo",
+            "explanation": "Agente leudante de uso comun en panificacion."
+          },
+          {
+            "code": "E-503ii (Bicarbonato de Amonio)",
+            "purpose": "Agente leudante",
+            "simplifiedRisk": "Riesgo bajo",
+            "explanation": "Se usa para dar textura porosa y crocante."
+          }
+        ],
+        "personalizedWarnings": [
+          {
+            "condition": "Hipertension",
+            "severity": "danger",
+            "message": "Contiene sodio elevado; conviene evitar consumo frecuente si controlas presion arterial."
+          },
+          {
+            "condition": "Alergia al Gluten",
+            "severity": "danger",
+            "message": "Contiene trigo y gluten de forma directa."
+          }
+        ],
+        "recommendation": "Prefiere opciones integrales con menos sodio o porciones pequenas acompanadas de alimentos frescos."
+      }
+    },
+    {
+      "id": "gloriaazul",
+      "name": "Leche Evaporada Gloria Azul",
+      "brand": "Grupo Gloria Peru",
+      "barcode": "7751271000014",
+      "barcodes": ["7751271000014"],
+      "category": "Lacteos",
+      "image": "leche",
+      "description": "Leche evaporada tradicional.",
+      "ingredientsText": "Leche entera de vaca, estabilizadores, ortofosfato disodico, carragenina, vitaminas A, C y D.",
+      "analysis": {
+        "productName": "Leche Evaporada Gloria Azul",
+        "brand": "Grupo Gloria Peru",
+        "nutritionalSummary": "Producto lacteo procesado con proteina y calcio, pero no apto para personas con intolerancia a la lactosa.",
+        "processingLevel": "NOVA 3 (Alimentos procesados)",
+        "processingExplanation": "La leche se concentra por evaporacion y se estabiliza para conservar textura y vida util.",
+        "macronutrients": {
+          "calories": "110 kcal",
+          "saturatedFat": "3.8 g",
+          "sugar": "7.8 g",
+          "sodium": "115 mg",
+          "protein": "6.2 g",
+          "carbohydrates": "9.0 g"
+        },
+        "octogons": [],
+        "additives": [
+          {
+            "code": "E-407 (Carragenina)",
+            "purpose": "Estabilizante",
+            "simplifiedRisk": "Consumo moderado",
+            "explanation": "Espesante de origen vegetal usado para mantener textura; conviene moderar si hay sensibilidad digestiva."
+          },
+          {
+            "code": "E-339 (Ortofosfato Disodico)",
+            "purpose": "Estabilizante",
+            "simplifiedRisk": "Riesgo bajo",
+            "explanation": "Ayuda a controlar estabilidad y pH del producto."
+          }
+        ],
+        "personalizedWarnings": [
+          {
+            "condition": "Intolerancia a la Lactosa",
+            "severity": "danger",
+            "message": "Producto lacteo con lactosa; puede causar dolor abdominal, gases o hinchazon."
+          },
+          {
+            "condition": "Atleta",
+            "severity": "info",
+            "message": "Aporta proteina y calcio, utiles para recuperacion y salud osea."
+          }
+        ],
+        "recommendation": "Si tienes sensibilidad digestiva, elige version sin lactosa o bebidas fortificadas segun tu perfil."
+      }
+    },
+    {
+      "id": "papitaslays",
+      "name": "Papitas Hojuelas Clasicas Lays",
+      "brand": "PepsiCo Peru",
+      "barcode": "7750243070010",
+      "barcodes": ["7750243070010"],
+      "category": "Snacks",
+      "image": "lays",
+      "description": "Hojuelas de papa fritas con sal.",
+      "ingredientsText": "Papas seleccionadas, aceite vegetal de girasol refinado y sal.",
+      "analysis": {
+        "productName": "Papas Hojuelas Lays Clasicas",
+        "brand": "PepsiCo Peru",
+        "nutritionalSummary": "Snack frito con alta densidad calorica, grasas y sodio; bajo aporte de micronutrientes.",
+        "processingLevel": "NOVA 3 (Alimentos procesados)",
+        "processingExplanation": "La papa se frie industrialmente y se sala para mejorar textura, sabor y conservacion.",
+        "macronutrients": {
+          "calories": "160 kcal",
+          "saturatedFat": "4.5 g",
+          "sugar": "0.1 g",
+          "sodium": "260 mg",
+          "protein": "2.0 g",
+          "carbohydrates": "15 g"
+        },
+        "octogons": ["ALTO EN SODIO", "ALTO EN GRASAS SATURADAS"],
+        "additives": [],
+        "personalizedWarnings": [
+          {
+            "condition": "Hipertension",
+            "severity": "danger",
+            "message": "Contiene una carga importante de sodio; limita su consumo si controlas presion arterial."
+          },
+          {
+            "condition": "Atleta",
+            "severity": "warning",
+            "message": "Aporta calorias y grasas, pero poca utilidad para recuperacion deportiva."
+          }
+        ],
+        "recommendation": "Prefiere papas horneadas, frutos secos sin sal o snacks con menor sodio."
+      }
+    }
+  ]
+}

@@ -19,7 +19,7 @@ export default function AdditiveGlossary() {
     switch (risk) {
       case 'Riesgo alto':
         return 'bg-red-50 text-red-700 border-red-200';
-      case 'Evitar en niños':
+      case 'Evitar en ninos':
         return 'bg-amber-50 text-amber-800 border-amber-200';
       case 'Consumo moderado':
         return 'bg-yellow-50 text-yellow-800 border-yellow-200';
@@ -32,7 +32,7 @@ export default function AdditiveGlossary() {
     switch (risk) {
       case 'Riesgo alto':
         return <XCircle className="w-4 h-4 text-red-600 shrink-0" />;
-      case 'Evitar en niños':
+      case 'Evitar en ninos':
         return <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />;
       case 'Consumo moderado':
         return <Info className="w-4 h-4 text-yellow-600 shrink-0" />;
@@ -57,7 +57,7 @@ export default function AdditiveGlossary() {
         <div className="relative mt-3">
           <input
             type="text"
-            placeholder="Buscar por nombre, código (E-102) o función..."
+            placeholder="Buscar por nombre, codigo (E-102) o funcion..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full text-sm bg-slate-100 pl-9 pr-4 py-2 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500 transition-all border border-transparent"
@@ -67,7 +67,7 @@ export default function AdditiveGlossary() {
 
         {/* Filter categories */}
         <div className="flex gap-1 overflow-x-auto pb-1 mt-3 scrollbar-none">
-          {['todos', 'Riesgo alto', 'Evitar en niños', 'Consumo moderado', 'Riesgo bajo'].map((risk) => (
+          {['todos', 'Riesgo alto', 'Evitar en ninos', 'Consumo moderado', 'Riesgo bajo'].map((risk) => (
             <button
               key={risk}
               onClick={() => setSelectedRisk(risk)}
@@ -127,7 +127,7 @@ export default function AdditiveGlossary() {
           <div className="text-center py-12">
             <AlertTriangle className="w-8 h-8 text-slate-300 mx-auto mb-2" />
             <p className="text-sm font-medium text-slate-500">No se encontraron aditivos</p>
-            <p className="text-xs text-slate-400 mt-1">Prueba con otro término de búsqueda o categoría</p>
+            <p className="text-xs text-slate-400 mt-1">Prueba con otro termino de busqueda o categoria</p>
           </div>
         )}
       </div>

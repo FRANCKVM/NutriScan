@@ -3,7 +3,8 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { 
   Scan, 
   User, 
@@ -26,16 +27,48 @@ import {
   CheckCircle2, 
   BookOpen, 
   Info,
-  Apple
+  Apple,
+  LogOut
 } from 'lucide-react';
-import { HEALTH_CONDITIONS, PRODUCT_PRESETS } from './data';
-import { AnalysisResult, HealthConditionId, ScannedHistoryItem } from './types';
+import { HEALTH_CONDITIONS } from './data';
+import productsData from './products.json';
+import { AnalysisResult, HealthConditionId, ProductPreset, ScannedHistoryItem } from './types';
 import HealthProfile from './components/HealthProfile';
 import AdditiveGlossary from './components/AdditiveGlossary';
+
+const PRODUCT_CATALOG: ProductPreset[] = productsData.products as ProductPreset[];
+const DEFAULT_SCANNED_PRODUCT = PRODUCT_CATALOG[0];
+const AUTH_STORAGE_KEY = 'nutriscan_auth_session';
+const PRODUCT_BADGES: Record<string, string> = {
+  cocacola: 'CC',
+  incakola: 'IK',
+  chocolate: 'CH',
+  soda: 'GF',
+  leche: 'LG',
+  lays: 'LY'
+};
+
+interface AuthSession {
+  name: string;
+  email: string;
+  createdAt: number;
+}
 
 export default function App() {
   // Mobile app tabs
   const [activeTab, setActiveTab] = useState<'escanear' | 'perfil' | 'glosario' | 'historial'>('escanear');
+  const [authSession, setAuthSession] = useState<AuthSession | null>(() => {
+    try {
+      const stored = localStorage.getItem(AUTH_STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
+    } catch (error) {
+      console.error('Error reading auth session from localStorage', error);
+      return null;
+    }
+  });
+  const [loginName, setLoginName] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginError, setLoginError] = useState<string | null>(null);
   
   // App states
   const [activeConditions, setActiveConditions] = useState<HealthConditionId[]>(['diabetes', 'hypertension']);
@@ -46,12 +79,15 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [scannedHistory, setScannedHistory] = useState<ScannedHistoryItem[]>([]);
   
-  // Interactive camera simulation state
+  // EscÃƒÂ¡ner de cÃƒÂ³digos de barras en frontend
   const [showCamera, setShowCamera] = useState(false);
   const [isScanningPhoto, setIsScanningPhoto] = useState(false);
-  const [lensFocus, setLensFocus] = useState(false);
-  const [shutterFlash, setShutterFlash] = useState(false);
-  const [selectedDemoProduct, setSelectedDemoProduct] = useState<string | null>(null);
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [scanStatus, setScanStatus] = useState('Listo para escanear');
+  const [scanError, setScanError] = useState<string | null>(null);
+  const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const scannerControlsRef = useRef<IScannerControls | null>(null);
 
   // Load history from localStorage
   useEffect(() => {
@@ -74,9 +110,11 @@ export default function App() {
       brand,
       result
     };
-    const updated = [newItem, ...scannedHistory.slice(0, 19)]; // Limit to 20 items
-    setScannedHistory(updated);
-    localStorage.setItem('oasis_scanned_history', JSON.stringify(updated));
+    setScannedHistory((prev) => {
+      const updated = [newItem, ...prev.slice(0, 19)];
+      localStorage.setItem('oasis_scanned_history', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   const deleteHistoryItem = (id: string, e: React.MouseEvent) => {
@@ -87,10 +125,36 @@ export default function App() {
   };
 
   const clearAllHistory = () => {
-    if (window.confirm("¿Seguro que deseas borrar todo tu historial de escaneos?")) {
+    if (window.confirm("Ã‚Â¿Seguro que deseas borrar todo tu historial de escaneos?")) {
       setScannedHistory([]);
       localStorage.removeItem('oasis_scanned_history');
     }
+  };
+
+  const handleLogin = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const trimmedName = loginName.trim();
+    const trimmedEmail = loginEmail.trim();
+
+    if (!trimmedName || !trimmedEmail) {
+      setLoginError('Ingresa tu nombre y correo para continuar.');
+      return;
+    }
+
+    if (!trimmedEmail.includes('@')) {
+      setLoginError('Ingresa un correo valido para iniciar sesion.');
+      return;
+    }
+
+    const nextSession: AuthSession = {
+      name: trimmedName,
+      email: trimmedEmail,
+      createdAt: Date.now()
+    };
+
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(nextSession));
+    setAuthSession(nextSession);
+    setLoginError(null);
   };
 
   // Toggle profile filters
@@ -102,128 +166,101 @@ export default function App() {
     }
   };
 
-  // Execute Analysis via Server-Side API Proxy (using real Gemini client)
-  const handleAnalyze = async (text: string, title?: string) => {
-    if (!text.trim()) return;
-    setIsLoading(true);
-    setErrorMsg(null);
-    setCurrentResult(null);
-
-    // Map health condition IDs to their label names to send in the analysis prompt
-    const conditionLabels = activeConditions.map(id => {
-      const found = HEALTH_CONDITIONS.find(item => item.id === id);
-      return found ? found.label : id;
-    });
-
-    try {
-      const response = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          ingredientsText: text,
-          productName: title || productNameInput || 'Producto Escaneado',
-          healthConditions: conditionLabels
-        })
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || `Error del servidor (${response.status})`);
-      }
-
-      const data: AnalysisResult = await response.json();
-      setCurrentResult(data);
-      // Save item to history
-      saveToHistory(data.productName, data.brand || 'Marca Desconocida', data);
-    } catch (err: any) {
-      console.error(err);
-      setErrorMsg(err?.message || "Ocurrió un error al contactar al servidor. Por favor intenta de nuevo.");
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // Quick preset loader (performs an instant offline/mock high fidelity preview or passes text to the real generator)
-  const handleLoadPreset = (presetId: string) => {
-    const preset = PRODUCT_PRESETS.find(p => p.id === presetId);
-    if (!preset) return;
-    
-    // Instead of doing a network load which can slow down interaction, we load the highly accurate,
-    // pre-baked mock responses matching active health filters instantly! However, to respect the real API requirement,
-    // we also provide a "Re-analizar en vivo" button on the UI so the user can query live AI.
-    // Let's populate the edit areas and load the preset mockup immediately for pristine UX!
-    setCustomText(preset.ingredientsText);
-    setProductNameInput(preset.name);
-    
-    // Customize the preset warning lists based on currently active health conditions
-    const tailoredWarnings = preset.mockResult.personalizedWarnings.filter(w => {
-      // Find matching condition keyword
-      const words = w.condition.toLowerCase();
-      return activeConditions.some(c => {
-        if (c === 'diabetes' && words.includes('diab')) return true;
-        if (c === 'hypertension' && (words.includes('hiper') || words.includes('presio') || words.includes('sodi'))) return true;
-        if (c === 'pregnancy' && (words.includes('emba') || words.includes('gest'))) return true;
-        if (c === 'celiac' && (words.includes('gluten') || words.includes('celi'))) return true;
-        if (c === 'lactose' && (words.includes('lacto') || words.includes('leche'))) return true;
-        if (c === 'vegan' && (words.includes('vega') || words.includes('anim'))) return true;
-        if (c === 'child' && (words.includes('niñ') || words.includes('infan') || words.includes('tartr'))) return true;
-        if (c === 'athlete' && (words.includes('depor') || words.includes('atlet') || words.includes('rendi') || words.includes('prote'))) return true;
+  const applyProduct = (product: ProductPreset) => {
+    const tailoredWarnings = product.analysis.personalizedWarnings.filter((warning) => {
+      const words = warning.condition.toLowerCase();
+      return activeConditions.some((condition) => {
+        if (condition === 'diabetes' && words.includes('diab')) return true;
+        if (condition === 'hypertension' && (words.includes('hiper') || words.includes('presio') || words.includes('sodi'))) return true;
+        if (condition === 'pregnancy' && (words.includes('emba') || words.includes('gest'))) return true;
+        if (condition === 'celiac' && (words.includes('gluten') || words.includes('celi'))) return true;
+        if (condition === 'lactose' && (words.includes('lacto') || words.includes('leche'))) return true;
+        if (condition === 'vegan' && (words.includes('vega') || words.includes('anim'))) return true;
+        if (condition === 'child' && (words.includes('niÃƒÂ±') || words.includes('infan') || words.includes('tartr'))) return true;
+        if (condition === 'athlete' && (words.includes('depor') || words.includes('atlet') || words.includes('rendi') || words.includes('prote'))) return true;
         return false;
-      }) || w.severity === 'info'; // always show info alerts
+      }) || warning.severity === 'info';
     });
 
     const tailoredResult: AnalysisResult = {
-      ...preset.mockResult,
+      ...product.analysis,
       personalizedWarnings: tailoredWarnings.length > 0 ? tailoredWarnings : [
         {
           condition: 'General',
           severity: 'info',
-          message: 'No se detectaron riesgos críticos específicos para tu configuración de salud actual.'
+          message: 'No se detectaron riesgos crÃƒÂ­ticos especÃƒÂ­ficos para tu configuraciÃƒÂ³n de salud actual.'
         }
       ]
     };
 
     setCurrentResult(tailoredResult);
-    saveToHistory(preset.name, preset.brand, tailoredResult);
-    setSelectedDemoProduct(preset.id);
+    setCustomText(product.ingredientsText);
+    setProductNameInput(product.name);
+    saveToHistory(product.name, product.brand, tailoredResult);
+    setSelectedProductId(product.id);
   };
 
-  // Simulate mobile camera capture
+  const getGenericScannedProduct = (): ProductPreset => {
+    return DEFAULT_SCANNED_PRODUCT;
+  };
+
+  const handleAnalyze = async () => {
+
+    setIsLoading(true);
+    setErrorMsg(null);
+    setCurrentResult(null);
+
+    try {
+      const selectedProduct = getGenericScannedProduct();
+      applyProduct(selectedProduct);
+      setScanStatus(`Mostrando analisis nutricional para ${selectedProduct.name}`);
+    } catch (err: any) {
+      console.error(err);
+      setErrorMsg(err?.message || 'Ocurrio un error al preparar el analisis del producto.');
+    } finally {
+      window.setTimeout(() => setIsLoading(false), 300);
+    }
+  };
+
+  const handleLoadPreset = (presetId: string) => {
+    const preset = PRODUCT_CATALOG.find((product) => product.id === presetId);
+    if (!preset) return;
+    applyProduct(preset);
+  };
+
   const triggerCameraScan = () => {
     setShowCamera(true);
-    setLensFocus(false);
-    setTimeout(() => setLensFocus(true), 800);
+    setScanError(null);
+    setScanStatus('Solicitando acceso a la cÃƒÂ¡mara...');
+    setIsScanningPhoto(false);
   };
 
-  const executeCameraCapture = () => {
-    setShutterFlash(true);
-    setTimeout(() => setShutterFlash(false), 200);
-    setIsScanningPhoto(true);
+  const stopCameraScan = () => {
+    scannerControlsRef.current?.stop();
+    scannerControlsRef.current = null;
+    setShowCamera(false);
+    setIsScanningPhoto(false);
+    setScanStatus('EscÃƒÂ¡ner detenido');
+  };
 
-    setTimeout(() => {
-      // Pick a random real product's ingredients text to load
-      const randomIndex = Math.floor(Math.random() * PRODUCT_PRESETS.length);
-      const chosenPreset = PRODUCT_PRESETS[randomIndex];
-      setCustomText(chosenPreset.ingredientsText);
-      setProductNameInput(`${chosenPreset.name} (Escaneado)`);
-      setIsScanningPhoto(false);
-      setShowCamera(false);
-      
-      // Auto run analysis
-      handleAnalyze(chosenPreset.ingredientsText, `${chosenPreset.name} (Cámara)`);
-    }, 2400);
+  const handleLogout = () => {
+    scannerControlsRef.current?.stop();
+    scannerControlsRef.current = null;
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    setAuthSession(null);
+    setShowCamera(false);
+    setIsScanningPhoto(false);
+    setCurrentResult(null);
+    setActiveTab('escanear');
   };
 
   // Help tips during loading spinner (highly immersive & Peruvian culture context)
   const [loadingTipIndex, setLoadingTipIndex] = useState(0);
   const loadingTips = [
-    "Descifrando aditivos complejos según el Ministerio de Salud (MINSA)...",
-    "Analizando límites de la Ley de Alimentación Saludable Peruana (Ley N° 30021)...",
-    "Buscando compuestos como Tartrazina (E-102) u otros edulcorantes artificiales...",
-    "Cruzando ingredientes con tu perfil personalizado...",
-    "Revisando niveles de sodio, azúcares y grasas de acuerdo al Manual de Advertencias Publicitarias..."
+    "Leyendo la informacion nutricional...",
+    "Preparando octogonos y advertencias personalizadas...",
+    "Cruzando el producto con tu perfil de salud...",
+    "Revisando azucares, sodio, cafeina y aditivos..."
   ];
 
   useEffect(() => {
@@ -236,6 +273,139 @@ export default function App() {
     return () => clearInterval(interval);
   }, [isLoading]);
 
+  useEffect(() => {
+    if (!showCamera) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const startScanner = async () => {
+      try {
+        const reader = new BrowserMultiFormatReader();
+
+        const devices = await BrowserMultiFormatReader.listVideoInputDevices();
+        if (cancelled) return;
+
+        if (!devices.length) {
+          throw new Error('No se encontrÃƒÂ³ una cÃƒÂ¡mara disponible.');
+        }
+
+        const controls = await reader.decodeFromVideoDevice(devices[0].deviceId, videoRef.current ?? undefined, (result, error) => {
+          if (cancelled) return;
+
+          if (result) {
+            const barcode = result.getText();
+            setLastScannedBarcode(barcode);
+            setScanStatus(`CÃƒÂ³digo detectado: ${barcode}`);
+            setIsScanningPhoto(true);
+
+            const selectedProduct = getGenericScannedProduct();
+            applyProduct(selectedProduct);
+            setScanError(null);
+
+            window.setTimeout(() => {
+              if (!cancelled) {
+                scannerControlsRef.current?.stop();
+                scannerControlsRef.current = null;
+                setShowCamera(false);
+                setIsScanningPhoto(false);
+              }
+            }, 800);
+          } else if (error && error.name !== 'NotFoundException') {
+            console.debug(error);
+          }
+        });
+
+        scannerControlsRef.current = controls;
+        setScanStatus('Apunta la cÃƒÂ¡mara al cÃƒÂ³digo de barras');
+      } catch (error) {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : 'No se pudo iniciar el escÃƒÂ¡ner.';
+          setScanError(message);
+          setScanStatus('No se pudo iniciar el escÃƒÂ¡ner');
+        }
+      }
+    };
+
+    startScanner();
+
+    return () => {
+      cancelled = true;
+      scannerControlsRef.current?.stop();
+      scannerControlsRef.current = null;
+    };
+  }, [showCamera]);
+
+  if (!authSession) {
+    return (
+      <div className="min-h-screen bg-[#F8F5F2] text-[#433F3E] flex flex-col justify-center items-center font-sans relative p-0 sm:p-4 overflow-hidden">
+        <div className="absolute inset-0 bg-[radial-gradient(#7A8B7C_1px,transparent_1px)] [background-size:16px_16px] opacity-10 pointer-events-none" />
+
+        <div className="w-full h-screen sm:h-[812px] max-w-md bg-[#F8F5F2] border-0 sm:border-8 border-[#E0D8D0] rounded-none sm:rounded-[48px] shadow-none sm:shadow-2xl relative overflow-hidden flex flex-col z-10">
+          <div className="flex-1 flex flex-col justify-center px-6 py-8">
+            <div className="space-y-6">
+              <div className="space-y-3">
+                <div className="w-14 h-14 rounded-2xl bg-[#7A8B7C] text-white flex items-center justify-center shadow-sm">
+                  <User className="w-7 h-7" />
+                </div>
+                <div>
+                  <h1 className="font-serif text-3xl font-bold text-[#433F3E] leading-tight">NutriScan</h1>
+                  <p className="text-xs text-[#433F3E]/65 leading-relaxed mt-2">
+                    Inicia sesion para acceder al escaner, tu perfil de salud y tu historial personal.
+                  </p>
+                </div>
+              </div>
+
+              <form onSubmit={handleLogin} className="bg-white border border-[#E0D8D0]/70 rounded-3xl p-4 shadow-xs space-y-3">
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase tracking-wider font-bold text-[#433F3E]/55">Nombre</label>
+                  <input
+                    type="text"
+                    value={loginName}
+                    onChange={(event) => setLoginName(event.target.value)}
+                    placeholder="Ej: Valeria"
+                    className="w-full text-sm bg-slate-50 p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#7A8B7C] focus:border-[#7A8B7C]"
+                  />
+                </div>
+
+                <div className="space-y-1">
+                  <label className="text-[10px] uppercase tracking-wider font-bold text-[#433F3E]/55">Correo</label>
+                  <input
+                    type="email"
+                    value={loginEmail}
+                    onChange={(event) => setLoginEmail(event.target.value)}
+                    placeholder="correo@ejemplo.com"
+                    className="w-full text-sm bg-slate-50 p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#7A8B7C] focus:border-[#7A8B7C]"
+                  />
+                </div>
+
+                {loginError && (
+                  <div className="p-3 bg-red-50 border border-red-100 rounded-xl text-red-700 text-xs flex gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0" />
+                    <span>{loginError}</span>
+                  </div>
+                )}
+
+                <button
+                  type="submit"
+                  className="w-full py-3 rounded-2xl text-xs font-semibold shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer bg-[#7A8B7C] text-white hover:bg-[#697A6B] hover:shadow-md"
+                >
+                  <Check className="w-3.5 h-3.5" />
+                  Entrar a la app
+                </button>
+              </form>
+
+              <p className="text-[10px] text-center text-[#433F3E]/45 leading-relaxed">
+                Tu sesion se mantendra activa en este dispositivo.
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#F8F5F2] text-[#433F3E] flex flex-col justify-center items-center font-sans transition-colors duration-300 relative p-0 sm:p-4 overflow-hidden select-none">
       
@@ -245,89 +415,58 @@ export default function App() {
       {/* Smartphone Frame Wrapper */}
       <div className="w-full h-screen sm:h-[812px] max-w-md bg-white border-0 sm:border-8 border-[#E0D8D0] rounded-none sm:rounded-[48px] shadow-none sm:shadow-2xl relative overflow-hidden flex flex-col bg-slate-50 z-10">
             
-            {/* Top Phone Speaker / Notch */}
-            <div className="absolute top-0 inset-x-0 h-6 bg-white z-50 flex justify-center items-center pointer-events-none">
-              <div className="w-24 h-4 bg-[#E0D8D0] rounded-b-xl flex justify-center items-start">
-                <div className="w-10 h-1 bg-white/40 rounded-full mt-1"></div>
-              </div>
-            </div>
-
-            {/* Simulated Mobile Status Bar */}
-            <div className="pt-6 px-6 pb-2 bg-white flex justify-between items-center text-[10px] font-bold text-[#433F3E]/70 z-40 select-none border-b border-[#F2EDE9]">
-              <span>02:29 AM <span className="text-[8px] bg-emerald-100 text-emerald-800 px-1 py-0.2 rounded font-mono">UTC</span></span>
-              <div className="flex items-center gap-1.5 font-mono">
-                <span>Oasis 5G</span>
-                <div className="w-4 h-2.5 bg-[#433F3E]/20 rounded-xs border border-[#433F3E]/40 p-0.5 flex items-center">
-                  <div className="h-full bg-[#7A8B7C] w-[88%] rounded-2xs"></div>
-                </div>
-              </div>
-            </div>
-
             {/* Mobile View Screen Container */}
             <div className="flex-1 overflow-hidden flex flex-col relative bg-[#F8F5F2]">
               
-              {/* Dynamic Camera Simulation Layer (Overlays the current view when active) */}
+              {/* EscÃƒÂ¡ner de cÃƒÂ³digos de barras en vivo */}
               {showCamera && (
                 <div className="absolute inset-0 bg-black z-50 flex flex-col justify-between p-4 pt-10 text-white">
-                  
-                  {/* Exit camera */}
                   <div className="flex justify-between items-center">
                     <button 
-                      onClick={() => setShowCamera(false)}
+                      onClick={stopCameraScan}
                       className="px-3 py-1 bg-white/10 rounded-full text-xs font-semibold backdrop-blur"
                     >
                       Cancelar
                     </button>
-                    <span className="text-xs tracking-wider text-[#D7BAA5] font-bold uppercase">Escáner Activo</span>
+                    <span className="text-xs tracking-wider text-[#D7BAA5] font-bold uppercase">EscÃƒÂ¡ner Activo</span>
                     <div className="w-10"></div>
                   </div>
 
-                  {/* Shutter Camera Window */}
                   <div className="flex-1 flex items-center justify-center px-4 relative">
-                    <div className="w-full aspect-square border-4 border-dashed border-[#D7BAA5]/70 rounded-[32px] overflow-hidden relative flex flex-col justify-center items-center">
-                      
-                      {/* Active green laser line animation */}
-                      <div className="absolute left-0 right-0 h-1 bg-emerald-400 shadow-lg shadow-emerald-400/80 animate-bounce top-1/2" />
-
-                      {/* Camera Lens Focus Ring */}
-                      <div className={`w-32 h-32 border-2 border-[#7A8B7C]/40 rounded-full flex items-center justify-center transition-all duration-500 ${
-                        lensFocus ? 'scale-110 opacity-100' : 'scale-90 opacity-40'
-                      }`}>
-                        <div className="w-20 h-20 border border-white/20 rounded-full flex items-center justify-center">
-                          <Camera className="w-6 h-6 text-white/50" />
-                        </div>
-                      </div>
-
-                      <p className="text-[10px] text-white/60 text-center uppercase tracking-widest mt-4 max-w-[200px] z-10 px-2 bg-black/40 py-1 rounded-md">
-                        Centra la sección de ingredientes del envase
+                    <div className="w-full aspect-square border-4 border-dashed border-[#D7BAA5]/70 rounded-[32px] overflow-hidden relative flex flex-col justify-center items-center bg-slate-900">
+                      <video
+                        ref={videoRef}
+                        className="absolute inset-0 h-full w-full object-cover"
+                        autoPlay
+                        playsInline
+                        muted
+                      />
+                      <div className="absolute inset-0 border-[24px] border-black/20 rounded-[32px]" />
+                      <p className="absolute bottom-4 text-[10px] text-white/70 text-center uppercase tracking-widest z-10 px-2 bg-black/40 py-1 rounded-md">
+                        {scanStatus}
                       </p>
                     </div>
-
-                    {shutterFlash && (
-                      <div className="absolute inset-0 bg-white z-50 animate-fade-out" />
-                    )}
 
                     {isScanningPhoto && (
                       <div className="absolute inset-0 bg-black/90 flex flex-col justify-center items-center z-50">
                         <div className="w-12 h-12 rounded-full border-4 border-[#7A8B7C] border-t-transparent animate-spin mb-4" />
-                        <p className="text-sm font-semibold tracking-wide text-[#F8F5F2]">Extrayendo Texto con OCR...</p>
-                        <p className="text-[11px] text-white/50 mt-1">Leyendo aditivos y preservantes</p>
+                        <p className="text-sm font-semibold tracking-wide text-[#F8F5F2]">Procesando cÃƒÂ³digo detectado...</p>
+                        <p className="text-[11px] text-white/50 mt-1">Cargando informaciÃƒÂ³n del producto</p>
                       </div>
                     )}
                   </div>
 
-                  {/* Camera Control Panel */}
                   <div className="pb-6 flex flex-col items-center gap-4">
                     <span className="text-xs text-center text-white/70 max-w-xs">
-                      Este escáner simula la captura fotográfica inteligente de la etiqueta trasera para detectar ingredientes problemáticos.
+                      {scanError ? scanError : (lastScannedBarcode ? `ÃƒÅ¡ltimo cÃƒÂ³digo: ${lastScannedBarcode}` : 'Apunta la cÃƒÂ¡mara al cÃƒÂ³digo de barras del producto para ver el anÃƒÂ¡lisis.')}
                     </span>
                     
                     <button 
-                      onClick={executeCameraCapture}
+                      onClick={stopCameraScan}
                       className="w-16 h-16 rounded-full border-4 border-[#D7BAA5] p-1.5 focus:outline-none focus:scale-95 transition-transform"
                     >
-                      <div className="w-full h-full bg-white rounded-full flex items-center justify-center">
-                        <div className="w-6 h-6 rounded-full bg-slate-900" />
+                      <div className="w-full h-full bg-white rounded-full flex items-center justify-center text-slate-900 font-bold">
+                        Ã¢Å“â€¢
                       </div>
                     </button>
                   </div>
@@ -343,14 +482,14 @@ export default function App() {
                     </div>
                   </div>
                   <h3 className="font-serif text-lg font-bold text-center text-[#433F3E]">
-                    Procesando con IA Oasis
+                    Analizando producto
                   </h3>
                   <p className="text-xs text-center text-[#7A8B7C] mt-2 max-w-xs h-12 leading-relaxed">
                     {loadingTips[loadingTipIndex]}
                   </p>
                   <div className="mt-8 space-y-2 w-full text-center">
                     <div className="inline-block px-3 py-1 bg-[#D7BAA5]/20 text-[#D7BAA5]/90 border border-[#D7BAA5]/30 rounded-full text-[10px] uppercase tracking-wider font-semibold">
-                      Análisis de Riesgo en Vivo
+                      Analisis nutricional
                     </div>
                   </div>
                 </div>
@@ -390,11 +529,11 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* HIGH FIDELITY PERUVIAN OCTÓGONOS SYSTEM */}
+                        {/* HIGH FIDELITY PERUVIAN OCTÃƒâ€œGONOS SYSTEM */}
                         <div className="bg-white border border-[#E0D8D0]/60 rounded-3xl p-4 shadow-xs">
                           <h3 className="text-xs font-bold uppercase tracking-wider text-[#433F3E]/60 mb-3 flex items-center gap-1.5">
                             <AlertTriangle className="w-4 h-4 text-[#D7BAA5]" />
-                            Octógonos Ley N° 30021
+                            OctÃƒÂ³gonos Ley NÃ‚Â° 30021
                           </h3>
 
                           {currentResult.octogons && currentResult.octogons.length > 0 ? (
@@ -422,7 +561,7 @@ export default function App() {
                               <div>
                                 <h4 className="text-xs font-bold text-emerald-800">Libre de Advertencias Publicitarias</h4>
                                 <p className="text-[10px] text-emerald-700 mt-0.5 leading-snug">
-                                  No supera los límites de sodio, azúcar, grasas saturadas ni grasas trans dictados por el MINSA.
+                                  No supera los lÃƒÂ­mites de sodio, azÃƒÂºcar, grasas saturadas ni grasas trans dictados por el MINSA.
                                 </p>
                               </div>
                             </div>
@@ -432,7 +571,7 @@ export default function App() {
                         {/* NOVA PROCESSING LEVEL */}
                         <div className="bg-white border border-[#E0D8D0]/60 rounded-3xl p-4 shadow-xs">
                           <h4 className="text-xs font-bold uppercase tracking-wider text-[#433F3E]/60 mb-2.5">
-                            Clasificación de Procesamiento (NOVA)
+                            ClasificaciÃƒÂ³n de Procesamiento (NOVA)
                           </h4>
 
                           <div className="space-y-3">
@@ -507,11 +646,11 @@ export default function App() {
 
                           <div className="grid grid-cols-3 gap-2">
                             {[
-                              { label: 'Energía', val: currentResult.macronutrients.calories, bg: 'bg-[#F2EDE9]' },
-                              { label: 'Azúcares', val: currentResult.macronutrients.sugar, bg: 'bg-[#F2EDE9]' },
+                              { label: 'EnergÃƒÂ­a', val: currentResult.macronutrients.calories, bg: 'bg-[#F2EDE9]' },
+                              { label: 'AzÃƒÂºcares', val: currentResult.macronutrients.sugar, bg: 'bg-[#F2EDE9]' },
                               { label: 'Sodio', val: currentResult.macronutrients.sodium, bg: 'bg-[#F2EDE9]' },
                               { label: 'Grasas Sat.', val: currentResult.macronutrients.saturatedFat, bg: 'bg-[#F2EDE9]' },
-                              { label: 'Proteína', val: currentResult.macronutrients.protein || 'N/A', bg: 'bg-[#E0D8D0]/40' },
+                              { label: 'ProteÃƒÂ­na', val: currentResult.macronutrients.protein || 'N/A', bg: 'bg-[#E0D8D0]/40' },
                               { label: 'Carbohidratos', val: currentResult.macronutrients.carbohydrates || 'N/A', bg: 'bg-[#E0D8D0]/40' }
                             ].map((nut, index) => (
                               <div key={index} className={`${nut.bg} rounded-xl p-2.5 text-center`}>
@@ -526,7 +665,7 @@ export default function App() {
                         {currentResult.additives && currentResult.additives.length > 0 && (
                           <div className="bg-white border border-[#E0D8D0]/60 rounded-3xl p-4 shadow-xs">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-[#433F3E]/60 mb-2.5 flex justify-between items-center">
-                              <span>Aditivos e Ingredientes Sintéticos</span>
+                              <span>Aditivos e Ingredientes SintÃƒÂ©ticos</span>
                               <span className="text-[10px] bg-[#7A8B7C]/15 text-[#7A8B7C] font-semibold px-2 py-0.5 rounded-full">
                                 {currentResult.additives.length} detectado(s)
                               </span>
@@ -541,7 +680,7 @@ export default function App() {
                                     </span>
                                     <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full ${
                                       add.simplifiedRisk === 'Riesgo alto' ? 'bg-red-50 text-red-600' :
-                                      add.simplifiedRisk === 'Evitar en niños' ? 'bg-amber-50 text-amber-700' :
+                                      add.simplifiedRisk === 'Evitar en ninos' ? 'bg-amber-50 text-amber-700' :
                                       add.simplifiedRisk === 'Consumo moderado' ? 'bg-yellow-50 text-yellow-800' :
                                       'bg-emerald-50 text-emerald-700'
                                     }`}>
@@ -549,7 +688,7 @@ export default function App() {
                                     </span>
                                   </div>
                                   <p className="text-[10px] text-[#433F3E]/50 font-medium leading-none">
-                                    Función: {add.purpose}
+                                    FunciÃƒÂ³n: {add.purpose}
                                   </p>
                                   <p className="text-[10px] text-[#433F3E]/80 leading-relaxed pt-1 border-t border-dashed border-[#F2EDE9] mt-2">
                                     {add.explanation}
@@ -589,12 +728,21 @@ export default function App() {
                         
                         {/* Interactive Welcome Card with Health active badges summary */}
                         <div className="bg-white border border-[#E0D8D0]/60 rounded-3xl p-4 shadow-xs space-y-1">
-                          <h2 className="font-serif text-xl font-bold text-[#433F3E] flex items-center gap-2">
-                            Hola, Bienvenid@
-                            <Sparkles className="w-4 h-4 text-[#7A8B7C] fill-[#7A8B7C]/10" />
-                          </h2>
+                          <div className="flex items-start justify-between gap-3">
+                            <h2 className="font-serif text-xl font-bold text-[#433F3E] flex items-center gap-2 min-w-0">
+                              Hola, {authSession.name}
+                              <Sparkles className="w-4 h-4 text-[#7A8B7C] fill-[#7A8B7C]/10 shrink-0" />
+                            </h2>
+                            <button
+                              onClick={handleLogout}
+                              className="p-2 rounded-full text-[#433F3E]/55 hover:text-red-600 hover:bg-red-50 transition-colors shrink-0"
+                              title="Cerrar sesion"
+                            >
+                              <LogOut className="w-4 h-4" />
+                            </button>
+                          </div>
                           <p className="text-xs text-[#433F3E]/70 leading-relaxed">
-                            Cuidamos tu salud traduciendo nomenclaturas de ingredientes difíciles.
+                            Cuidamos tu salud traduciendo nomenclaturas de ingredientes difÃƒÂ­ciles.
                           </p>
 
                           <div className="pt-2 flex flex-wrap gap-1.5">
@@ -617,7 +765,7 @@ export default function App() {
                                 onClick={() => setActiveTab('perfil')}
                                 className="text-[9px] bg-amber-50 text-amber-700 font-semibold px-2 py-0.5 rounded-full cursor-pointer hover:bg-amber-100 transition-all"
                               >
-                                ⚠️ Sin filtros de salud activos (Configurar)
+                                Ã¢Å¡Â Ã¯Â¸Â Sin filtros de salud activos (Configurar)
                               </span>
                             )}
                           </div>
@@ -631,8 +779,8 @@ export default function App() {
                           >
                             <Camera className="w-6 h-6 text-[#F8F5F2]" />
                             <div className="space-y-0.5">
-                              <p className="text-xs font-bold">Botón Cámara</p>
-                              <p className="text-[9px] opacity-70">Detectar con OCR</p>
+                              <p className="text-xs font-bold">Escanear codigo</p>
+                              <p className="text-[9px] opacity-70">ZXing en navegador</p>
                             </div>
                           </button>
 
@@ -649,8 +797,8 @@ export default function App() {
                           >
                             <Upload className="w-6 h-6 text-[#7A8B7C]" />
                             <div className="space-y-0.5">
-                              <p className="text-xs font-bold">Pegar Texto</p>
-                              <p className="text-[9px] text-[#433F3E]/60">Análisis Científico</p>
+                              <p className="text-xs font-bold">Consultar producto</p>
+                              <p className="text-[9px] text-[#433F3E]/60">Busqueda guiada</p>
                             </div>
                           </button>
                         </div>
@@ -658,14 +806,14 @@ export default function App() {
                         {/* MANUAL ENTRY COMPONENT */}
                         <div className="bg-white border border-[#E0D8D0]/60 rounded-3xl p-4 shadow-xs" id="manual-section">
                           <h3 className="text-xs font-bold uppercase tracking-wider text-[#433F3E]/60 mb-2.5">
-                            Analizador Manual (Ingredientes)
+                            Consulta nutricional
                           </h3>
 
                           <div className="space-y-3">
                             <div>
                               <input
                                 type="text"
-                                placeholder="Nombre del Alimento (Ej: Yogurt de Fresa)"
+                                placeholder="Codigo o nombre del producto (opcional)"
                                 value={productNameInput}
                                 onChange={(e) => setProductNameInput(e.target.value)}
                                 className="w-full text-xs bg-slate-50 p-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-1 focus:ring-[#7A8B7C] focus:border-[#7A8B7C]"
@@ -675,7 +823,7 @@ export default function App() {
                             <div>
                               <textarea
                                 id="manual-ingredients-input"
-                                placeholder="Pega el texto de ingredientes que se encuentra al reverso del empaque..."
+                                placeholder="Ingresa el codigo, nombre del producto u observaciones de la etiqueta."
                                 value={customText}
                                 onChange={(e) => setCustomText(e.target.value)}
                                 rows={4}
@@ -691,16 +839,11 @@ export default function App() {
                             )}
 
                             <button
-                              onClick={() => handleAnalyze(customText)}
-                              disabled={!customText.trim()}
-                              className={`w-full py-3 rounded-2xl text-xs font-semibold shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
-                                customText.trim()
-                                  ? 'bg-[#7A8B7C] text-white hover:bg-[#697A6B] hover:shadow-md'
-                                  : 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed'
-                              }`}
+                              onClick={() => handleAnalyze()}
+                              className="w-full py-3 rounded-2xl text-xs font-semibold shadow-sm transition-all flex items-center justify-center gap-1.5 cursor-pointer bg-[#7A8B7C] text-white hover:bg-[#697A6B] hover:shadow-md"
                             >
                               <Sparkles className="w-3.5 h-3.5" />
-                              Analizar con IA Oasis
+                              Analizar producto
                             </button>
                           </div>
                         </div>
@@ -709,14 +852,14 @@ export default function App() {
                         <div className="space-y-2.5">
                           <div className="flex justify-between items-center px-1">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-[#433F3E]/60">
-                              Productos Clásicos Peruanos
+                              Productos destacados
                             </h3>
-                            <span className="text-[10px] text-[#7A8B7C] font-semibold uppercase">Prueba Rápida</span>
+                            <span className="text-[10px] text-[#7A8B7C] font-semibold uppercase">Explorar</span>
                           </div>
 
                           <div className="grid grid-cols-1 gap-2.5">
-                            {PRODUCT_PRESETS.map((preset) => {
-                              const isSelected = selectedDemoProduct === preset.id && currentResult;
+                            {PRODUCT_CATALOG.map((preset) => {
+                              const isSelected = selectedProductId === preset.id && currentResult;
                               return (
                                 <div
                                   key={preset.id}
@@ -726,10 +869,7 @@ export default function App() {
                                 >
                                   <div className="flex items-center gap-3">
                                     <div className="w-10 h-10 rounded-xl bg-[#F2EDE9] group-hover:bg-[#E0D8D0]/40 flex items-center justify-center text-lg select-none">
-                                      {preset.image === 'incakola' ? '🥤' :
-                                       preset.image === 'chocolate' ? '🍫' :
-                                       preset.image === 'soda' ? '🍪' :
-                                       preset.image === 'leche' ? '🥛' : '🥔'}
+                                      {PRODUCT_BADGES[preset.image] ?? 'PR'}
                                     </div>
                                     <div>
                                       <h4 className="text-xs font-bold text-[#433F3E] group-hover:text-[#7A8B7C] transition-colors">
@@ -843,9 +983,9 @@ export default function App() {
                       <div className="text-center py-16 space-y-3">
                         <History className="w-10 h-10 text-slate-300 mx-auto" />
                         <div>
-                          <p className="text-sm font-medium text-slate-500">¿Aún no has hecho consultas?</p>
+                          <p className="text-sm font-medium text-slate-500">Ã‚Â¿AÃƒÂºn no has hecho consultas?</p>
                           <p className="text-xs text-slate-400 max-w-[200px] mx-auto mt-1 leading-relaxed">
-                            Aquí se guardarán tus análisis recientes para acceso rápido fuera de línea.
+                            AquÃƒÂ­ se guardarÃƒÂ¡n tus anÃƒÂ¡lisis recientes para acceso rÃƒÂ¡pido fuera de lÃƒÂ­nea.
                           </p>
                         </div>
                       </div>
