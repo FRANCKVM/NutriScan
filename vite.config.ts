@@ -7,7 +7,7 @@ import { VitePWA } from 'vite-plugin-pwa';
 export default defineConfig(({ command }) => {
   const base = process.env.VITE_BASE_PATH ?? (command === 'build' ? '/NutriScan/' : '/');
 
-  return {
+  return { 
     base,
     plugins: [
       react(),
