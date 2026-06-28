@@ -63,6 +63,17 @@ const PRODUCT_BARCODE_FORMATS = [
   BarcodeFormat.ITF,
   BarcodeFormat.CODABAR
 ];
+const NATIVE_BARCODE_FORMATS = [
+  'ean_13',
+  'ean_8',
+  'upc_a',
+  'upc_e',
+  'code_128',
+  'code_39',
+  'code_93',
+  'itf',
+  'codabar'
+];
 
 interface AuthSession {
   name: string;
@@ -88,6 +99,20 @@ type CameraConstraintSet = MediaTrackConstraintSet & {
   whiteBalanceMode?: string;
   torch?: boolean;
   zoom?: number;
+};
+
+type NativeBarcodeResult = {
+  rawValue: string;
+  format: string;
+};
+
+type NativeBarcodeDetector = {
+  detect(source: CanvasImageSource): Promise<NativeBarcodeResult[]>;
+};
+
+type NativeBarcodeDetectorConstructor = {
+  new(options?: { formats?: string[] }): NativeBarcodeDetector;
+  getSupportedFormats?: () => Promise<string[]>;
 };
 
 export default function App() {
@@ -134,6 +159,7 @@ export default function App() {
   const scannerControlsRef = useRef<IScannerControls | null>(null);
   const isHandlingScanRef = useRef(false);
   const cameraOptimizationTimerRef = useRef<number | null>(null);
+  const nativeDetectorTimerRef = useRef<number | null>(null);
 
   // Load history from localStorage
   useEffect(() => {
@@ -269,6 +295,40 @@ export default function App() {
     return reader;
   };
 
+  const getNativeBarcodeDetector = () => {
+    return (window as Window & typeof globalThis & { BarcodeDetector?: NativeBarcodeDetectorConstructor }).BarcodeDetector;
+  };
+
+  const getSupportedNativeFormats = async () => {
+    const Detector = getNativeBarcodeDetector();
+    if (!Detector) return [];
+
+    try {
+      const supportedFormats = Detector.getSupportedFormats ? await Detector.getSupportedFormats() : NATIVE_BARCODE_FORMATS;
+      return NATIVE_BARCODE_FORMATS.filter((format) => supportedFormats.includes(format));
+    } catch (error) {
+      console.debug('No se pudieron consultar formatos nativos', error);
+      return NATIVE_BARCODE_FORMATS;
+    }
+  };
+
+  const detectWithNativeBarcodeDetector = async (source: CanvasImageSource) => {
+    const Detector = getNativeBarcodeDetector();
+    if (!Detector) {
+      return { available: false, barcode: null as string | null };
+    }
+
+    const formats = await getSupportedNativeFormats();
+    if (!formats.length) {
+      return { available: false, barcode: null as string | null };
+    }
+
+    const detector = new Detector({ formats });
+    const results = await detector.detect(source);
+    const barcode = results.find((result) => result.rawValue)?.rawValue ?? null;
+    return { available: true, barcode };
+  };
+
   const completeBarcodeDetection = (barcode: string) => {
     if (isHandlingScanRef.current) return;
 
@@ -332,6 +392,7 @@ export default function App() {
   const handleCameraDeviceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
     const nextCameraId = event.target.value;
     clearCameraOptimizationTimer();
+    clearNativeDetectorTimer();
     scannerControlsRef.current?.stop();
     scannerControlsRef.current = null;
     isHandlingScanRef.current = false;
@@ -356,6 +417,57 @@ export default function App() {
       window.clearTimeout(cameraOptimizationTimerRef.current);
       cameraOptimizationTimerRef.current = null;
     }
+  };
+
+  const clearNativeDetectorTimer = () => {
+    if (nativeDetectorTimerRef.current !== null) {
+      window.clearTimeout(nativeDetectorTimerRef.current);
+      nativeDetectorTimerRef.current = null;
+    }
+  };
+
+  const startNativeBarcodeDetectorLoop = async (cancelledRef: () => boolean) => {
+    clearNativeDetectorTimer();
+
+    const Detector = getNativeBarcodeDetector();
+    if (!Detector) {
+      setCameraAssistStatus('Detector nativo no disponible, usando ZXing');
+      return;
+    }
+
+    const formats = await getSupportedNativeFormats();
+    if (!formats.length || cancelledRef()) {
+      setCameraAssistStatus('Detector nativo sin EAN/UPC, usando ZXing');
+      return;
+    }
+
+    const detector = new Detector({ formats });
+    setCameraAssistStatus('Detector nativo activo, ZXing en respaldo');
+
+    const detectFrame = async () => {
+      if (cancelledRef() || isHandlingScanRef.current) return;
+
+      try {
+        const video = videoRef.current;
+        if (video && video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) {
+          const results = await detector.detect(video);
+          const barcode = results.find((result) => result.rawValue)?.rawValue;
+
+          if (barcode && !cancelledRef()) {
+            completeBarcodeDetection(barcode);
+            return;
+          }
+        }
+      } catch (error) {
+        console.debug('Detector nativo no pudo leer este frame', error);
+      }
+
+      if (!cancelledRef() && !isHandlingScanRef.current) {
+        nativeDetectorTimerRef.current = window.setTimeout(detectFrame, 300);
+      }
+    };
+
+    nativeDetectorTimerRef.current = window.setTimeout(detectFrame, 250);
   };
 
   const optimizeActiveCamera = async (torchEnabled = isTorchOn, manual = false) => {
@@ -441,8 +553,19 @@ export default function App() {
       setIsGalleryDecoding(true);
       setScanError(null);
       setScanStatus('Leyendo imagen de galeria...');
-      setCameraAssistStatus('Analizando imagen clara...');
+      setCameraAssistStatus('Probando detector nativo...');
       isHandlingScanRef.current = false;
+
+      const imageBitmap = await createImageBitmap(file);
+      const nativeResult = await detectWithNativeBarcodeDetector(imageBitmap);
+      imageBitmap.close();
+
+      if (nativeResult.barcode) {
+        completeBarcodeDetection(nativeResult.barcode);
+        return;
+      }
+
+      setCameraAssistStatus(nativeResult.available ? 'Detector nativo no reconocio el codigo, usando ZXing' : 'Detector nativo no disponible, usando ZXing');
 
       const reader = createBarcodeReader();
       const result = await reader.decodeFromImageUrl(imageUrl);
@@ -498,6 +621,7 @@ export default function App() {
 
   const stopCameraScan = () => {
     clearCameraOptimizationTimer();
+    clearNativeDetectorTimer();
     scannerControlsRef.current?.stop();
     scannerControlsRef.current = null;
     setShowCamera(false);
@@ -513,6 +637,7 @@ export default function App() {
 
   const handleLogout = () => {
     clearCameraOptimizationTimer();
+    clearNativeDetectorTimer();
     scannerControlsRef.current?.stop();
     scannerControlsRef.current = null;
     localStorage.removeItem(AUTH_STORAGE_KEY);
@@ -597,6 +722,7 @@ export default function App() {
             syncActiveCameraId();
             if (!cancelled) void optimizeActiveCamera(false, false);
           }, 600);
+          void startNativeBarcodeDetectorLoop(() => cancelled);
         };
 
         try {
@@ -644,6 +770,7 @@ export default function App() {
     return () => {
       cancelled = true;
       clearCameraOptimizationTimer();
+      clearNativeDetectorTimer();
       scannerControlsRef.current?.stop();
       scannerControlsRef.current = null;
       setIsTorchSupported(false);
