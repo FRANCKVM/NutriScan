@@ -124,7 +124,9 @@ export default function App() {
   const [cameraAssistStatus, setCameraAssistStatus] = useState<string | null>(null);
   const [isTorchSupported, setIsTorchSupported] = useState(false);
   const [isTorchOn, setIsTorchOn] = useState(false);
+  const [isGalleryDecoding, setIsGalleryDecoding] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
   const isHandlingScanRef = useRef(false);
   const cameraOptimizationTimerRef = useRef<number | null>(null);
@@ -253,6 +255,37 @@ export default function App() {
     return DEFAULT_SCANNED_PRODUCT;
   };
 
+  const createBarcodeReader = () => {
+    const reader = new BrowserMultiFormatReader(undefined, {
+      delayBetweenScanAttempts: 120,
+      delayBetweenScanSuccess: 500,
+      tryPlayVideoTimeout: 5000
+    });
+    reader.possibleFormats = PRODUCT_BARCODE_FORMATS;
+    return reader;
+  };
+
+  const completeBarcodeDetection = (barcode: string) => {
+    if (isHandlingScanRef.current) return;
+
+    isHandlingScanRef.current = true;
+    setLastScannedBarcode(barcode);
+    setScanStatus(`Codigo detectado: ${barcode}`);
+    setIsScanningPhoto(true);
+    setIsGalleryDecoding(false);
+
+    const selectedProduct = getGenericScannedProduct();
+    applyProduct(selectedProduct);
+    setScanError(null);
+
+    window.setTimeout(() => {
+      scannerControlsRef.current?.stop();
+      scannerControlsRef.current = null;
+      setShowCamera(false);
+      setIsScanningPhoto(false);
+    }, 1100);
+  };
+
   const getActiveVideoTrack = () => {
     const stream = videoRef.current?.srcObject;
     if (!(stream instanceof MediaStream)) return null;
@@ -333,6 +366,39 @@ export default function App() {
     void optimizeActiveCamera(!isTorchOn, true);
   };
 
+  const handleOpenGallery = () => {
+    galleryInputRef.current?.click();
+  };
+
+  const handleGalleryImageSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+
+    if (!file) return;
+
+    const imageUrl = URL.createObjectURL(file);
+
+    try {
+      setIsGalleryDecoding(true);
+      setScanError(null);
+      setScanStatus('Leyendo imagen de galeria...');
+      setCameraAssistStatus('Analizando imagen clara...');
+      isHandlingScanRef.current = false;
+
+      const reader = createBarcodeReader();
+      const result = await reader.decodeFromImageUrl(imageUrl);
+      completeBarcodeDetection(result.getText());
+    } catch (error) {
+      console.debug('No se pudo leer el codigo desde la imagen', error);
+      setIsGalleryDecoding(false);
+      setScanStatus('Codigo no detectado en la imagen');
+      setCameraAssistStatus(null);
+      setScanError('No se pudo leer el codigo en esa imagen. Prueba una foto frontal, clara y sin reflejos.');
+    } finally {
+      URL.revokeObjectURL(imageUrl);
+    }
+  };
+
   const handleAnalyze = async () => {
 
     setIsLoading(true);
@@ -376,6 +442,7 @@ export default function App() {
     scannerControlsRef.current = null;
     setShowCamera(false);
     setIsScanningPhoto(false);
+    setIsGalleryDecoding(false);
     setScanStatus('Escaner detenido');
     setCameraAssistStatus(null);
     setIsTorchSupported(false);
@@ -391,6 +458,7 @@ export default function App() {
     setAuthSession(null);
     setShowCamera(false);
     setIsScanningPhoto(false);
+    setIsGalleryDecoding(false);
     setCameraAssistStatus(null);
     setIsTorchSupported(false);
     setIsTorchOn(false);
@@ -426,12 +494,7 @@ export default function App() {
 
     const startScanner = async () => {
       try {
-        const reader = new BrowserMultiFormatReader(undefined, {
-          delayBetweenScanAttempts: 120,
-          delayBetweenScanSuccess: 500,
-          tryPlayVideoTimeout: 5000
-        });
-        reader.possibleFormats = PRODUCT_BARCODE_FORMATS;
+        const reader = createBarcodeReader();
 
         const rearCameraConstraints: MediaStreamConstraints = {
           audio: false,
@@ -448,24 +511,8 @@ export default function App() {
           if (cancelled) return;
 
           if (result && !isHandlingScanRef.current) {
-            isHandlingScanRef.current = true;
             const barcode = result.getText();
-            setLastScannedBarcode(barcode);
-            setScanStatus(`Codigo detectado: ${barcode}`);
-            setIsScanningPhoto(true);
-
-            const selectedProduct = getGenericScannedProduct();
-            applyProduct(selectedProduct);
-            setScanError(null);
-
-            window.setTimeout(() => {
-              if (!cancelled) {
-                scannerControlsRef.current?.stop();
-                scannerControlsRef.current = null;
-                setShowCamera(false);
-                setIsScanningPhoto(false);
-              }
-            }, 1100);
+            if (!cancelled) completeBarcodeDetection(barcode);
           } else if (error && error.name !== 'NotFoundException') {
             console.debug(error);
           }
@@ -528,6 +575,7 @@ export default function App() {
       scannerControlsRef.current = null;
       setIsTorchSupported(false);
       setIsTorchOn(false);
+      setIsGalleryDecoding(false);
       isHandlingScanRef.current = false;
     };
   }, [showCamera]);
@@ -616,6 +664,14 @@ export default function App() {
               {/* Escaner de codigos de barras en vivo */}
               {showCamera && (
                 <div className="absolute inset-0 bg-black z-50 flex flex-col justify-between p-4 pt-10 text-white">
+                  <input
+                    ref={galleryInputRef}
+                    type="file"
+                    accept="image/*"
+                    className="hidden"
+                    onChange={handleGalleryImageSelected}
+                  />
+
                   <div className="flex justify-between items-center">
                     <button 
                       onClick={stopCameraScan}
@@ -653,22 +709,40 @@ export default function App() {
                       </p>
                     </div>
 
-                    {isScanningPhoto && (
+                    {(isScanningPhoto || isGalleryDecoding) && (
                       <div className="absolute inset-0 bg-black/80 flex flex-col justify-center items-center z-50">
                         <div className="relative mb-4">
-                          <div className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping" />
-                          <div className="relative w-14 h-14 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/30">
-                            <CheckCircle2 className="w-8 h-8" />
-                          </div>
+                          {isGalleryDecoding && !isScanningPhoto ? (
+                            <div className="w-14 h-14 rounded-full border-4 border-[#D7BAA5] border-t-transparent animate-spin" />
+                          ) : (
+                            <>
+                              <div className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping" />
+                              <div className="relative w-14 h-14 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/30">
+                                <CheckCircle2 className="w-8 h-8" />
+                              </div>
+                            </>
+                          )}
                         </div>
-                        <p className="text-sm font-semibold tracking-wide text-[#F8F5F2]">Codigo detectado</p>
-                        <p className="text-[11px] text-white/60 mt-1">Cargando informacion del producto</p>
+                        <p className="text-sm font-semibold tracking-wide text-[#F8F5F2]">
+                          {isGalleryDecoding && !isScanningPhoto ? 'Leyendo imagen' : 'Codigo detectado'}
+                        </p>
+                        <p className="text-[11px] text-white/60 mt-1">
+                          {isGalleryDecoding && !isScanningPhoto ? 'Buscando codigo de barras' : 'Cargando informacion del producto'}
+                        </p>
                       </div>
                     )}
                   </div>
 
                   <div className="pb-6 flex flex-col items-center gap-4">
                     <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={handleOpenGallery}
+                        className="h-9 px-3 rounded-full bg-white/10 border border-white/10 text-white/80 backdrop-blur text-[11px] font-semibold flex items-center gap-1.5 active:scale-95 transition-transform"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        Galeria
+                      </button>
+
                       <button
                         onClick={handleRefocusCamera}
                         className="h-9 px-3 rounded-full bg-white/10 border border-white/10 text-white/80 backdrop-blur text-[11px] font-semibold flex items-center gap-1.5 active:scale-95 transition-transform"
