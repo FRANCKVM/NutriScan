@@ -4,7 +4,7 @@
  */
 
 import React, { useEffect, useRef, useState } from 'react';
-import { BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
+import { BarcodeFormat, BrowserMultiFormatReader, IScannerControls } from '@zxing/browser';
 import { 
   Scan, 
   User, 
@@ -50,6 +50,17 @@ const PRODUCT_BADGES: Record<string, string> = {
   leche: 'LG',
   lays: 'LY'
 };
+const PRODUCT_BARCODE_FORMATS = [
+  BarcodeFormat.EAN_13,
+  BarcodeFormat.EAN_8,
+  BarcodeFormat.UPC_A,
+  BarcodeFormat.UPC_E,
+  BarcodeFormat.CODE_128,
+  BarcodeFormat.CODE_39,
+  BarcodeFormat.CODE_93,
+  BarcodeFormat.ITF,
+  BarcodeFormat.CODABAR
+];
 
 interface AuthSession {
   name: string;
@@ -246,6 +257,7 @@ export default function App() {
     setScanError(null);
     setScanStatus('Solicitando acceso a la camara trasera...');
     setIsScanningPhoto(false);
+    setLastScannedBarcode(null);
     isHandlingScanRef.current = false;
   };
 
@@ -297,13 +309,21 @@ export default function App() {
 
     const startScanner = async () => {
       try {
-        const reader = new BrowserMultiFormatReader();
+        const reader = new BrowserMultiFormatReader(undefined, {
+          delayBetweenScanAttempts: 120,
+          delayBetweenScanSuccess: 500,
+          tryPlayVideoTimeout: 5000
+        });
+        reader.possibleFormats = PRODUCT_BARCODE_FORMATS;
+
         const rearCameraConstraints: MediaStreamConstraints = {
           audio: false,
           video: {
             facingMode: { ideal: 'environment' },
             width: { ideal: 1280 },
-            height: { ideal: 720 }
+            height: { ideal: 720 },
+            frameRate: { ideal: 30 },
+            advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet]
           }
         };
 
@@ -328,7 +348,7 @@ export default function App() {
                 setShowCamera(false);
                 setIsScanningPhoto(false);
               }
-            }, 800);
+            }, 1100);
           } else if (error && error.name !== 'NotFoundException') {
             console.debug(error);
           }
@@ -342,7 +362,7 @@ export default function App() {
           }
 
           scannerControlsRef.current = controls;
-          setScanStatus('Apunta la camara trasera al codigo de barras');
+          setScanStatus('Buscando codigo de barras...');
         } catch (primaryError) {
           const devices = await BrowserMultiFormatReader.listVideoInputDevices();
           if (cancelled) return;
@@ -360,7 +380,7 @@ export default function App() {
           }
 
           scannerControlsRef.current = controls;
-          setScanStatus('Apunta la camara al codigo de barras');
+          setScanStatus('Buscando codigo de barras...');
           console.debug('Rear camera constraints fallback used', primaryError);
         }
       } catch (error) {
@@ -384,10 +404,10 @@ export default function App() {
 
   if (!authSession) {
     return (
-      <div className="min-h-screen bg-[#F8F5F2] text-[#433F3E] flex flex-col justify-center items-center font-sans relative p-0 sm:p-4 overflow-hidden">
+      <div className="min-h-[100dvh] bg-[#F8F5F2] text-[#433F3E] flex flex-col justify-center items-center font-sans relative p-0 sm:p-4 overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(#7A8B7C_1px,transparent_1px)] [background-size:16px_16px] opacity-10 pointer-events-none" />
 
-        <div className="w-full h-screen sm:h-[812px] max-w-md bg-[#F8F5F2] border-0 sm:border-8 border-[#E0D8D0] rounded-none sm:rounded-[48px] shadow-none sm:shadow-2xl relative overflow-hidden flex flex-col z-10">
+        <div className="w-full h-[100dvh] sm:h-[812px] max-w-md bg-[#F8F5F2] border-0 sm:border-8 border-[#E0D8D0] rounded-none sm:rounded-[48px] shadow-none sm:shadow-2xl relative overflow-hidden flex flex-col z-10">
           <div className="flex-1 flex flex-col justify-center px-6 py-8">
             <div className="space-y-6">
               <div className="space-y-3">
@@ -452,16 +472,16 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8F5F2] text-[#433F3E] flex flex-col justify-center items-center font-sans transition-colors duration-300 relative p-0 sm:p-4 overflow-hidden select-none">
+    <div className="min-h-[100dvh] bg-[#F8F5F2] text-[#433F3E] flex flex-col justify-center items-center font-sans transition-colors duration-300 relative p-0 sm:p-4 overflow-hidden select-none">
       
       {/* Dynamic desktop background grid details */}
       <div className="absolute inset-0 bg-[radial-gradient(#7A8B7C_1px,transparent_1px)] [background-size:16px_16px] opacity-10 pointer-events-none" />
 
       {/* Smartphone Frame Wrapper */}
-      <div className="w-full h-screen sm:h-[812px] max-w-md bg-white border-0 sm:border-8 border-[#E0D8D0] rounded-none sm:rounded-[48px] shadow-none sm:shadow-2xl relative overflow-hidden flex flex-col bg-slate-50 z-10">
+      <div className="w-full h-[100dvh] sm:h-[812px] max-w-md bg-white border-0 sm:border-8 border-[#E0D8D0] rounded-none sm:rounded-[48px] shadow-none sm:shadow-2xl relative overflow-hidden flex flex-col bg-slate-50 z-10">
             
             {/* Mobile View Screen Container */}
-            <div className="flex-1 overflow-hidden flex flex-col relative bg-[#F8F5F2]">
+            <div className="flex-1 min-h-0 overflow-hidden flex flex-col relative bg-[#F8F5F2]">
               
               {/* Escaner de codigos de barras en vivo */}
               {showCamera && (
@@ -478,7 +498,9 @@ export default function App() {
                   </div>
 
                   <div className="flex-1 flex items-center justify-center px-4 relative">
-                    <div className="w-full aspect-square border-4 border-dashed border-[#D7BAA5]/70 rounded-[32px] overflow-hidden relative flex flex-col justify-center items-center bg-slate-900">
+                    <div className={`w-[82vw] max-w-[320px] sm:w-[320px] aspect-[4/3] border-2 ${
+                      isScanningPhoto ? 'border-emerald-400 scanner-detected' : 'border-[#D7BAA5]/80'
+                    } rounded-[24px] overflow-hidden relative flex flex-col justify-center items-center bg-slate-900 shadow-2xl shadow-black/40`}>
                       <video
                         ref={videoRef}
                         className="absolute inset-0 h-full w-full object-cover"
@@ -486,27 +508,38 @@ export default function App() {
                         playsInline
                         muted
                       />
-                      <div className="absolute inset-0 border-[24px] border-black/20 rounded-[32px]" />
+                      <div className="absolute inset-0 border-[14px] border-black/20 rounded-[24px]" />
                       {!isScanningPhoto && (
-                        <div className="absolute left-8 right-8 top-1/2 h-0.5 bg-[#D7BAA5] shadow-[0_0_18px_rgba(215,186,165,0.85)] animate-pulse z-10" />
+                        <div className="absolute inset-x-8 top-[18%] bottom-[22%] overflow-hidden z-10">
+                          <div className="scanner-sweep h-0.5 bg-[#D7BAA5] shadow-[0_0_18px_rgba(215,186,165,0.85)]" />
+                        </div>
                       )}
-                      <p className="absolute bottom-4 text-[10px] text-white/70 text-center uppercase tracking-widest z-10 px-2 bg-black/40 py-1 rounded-md">
+                      <div className="absolute left-5 top-5 h-5 w-5 border-l-2 border-t-2 border-[#D7BAA5] z-10" />
+                      <div className="absolute right-5 top-5 h-5 w-5 border-r-2 border-t-2 border-[#D7BAA5] z-10" />
+                      <div className="absolute left-5 bottom-5 h-5 w-5 border-l-2 border-b-2 border-[#D7BAA5] z-10" />
+                      <div className="absolute right-5 bottom-5 h-5 w-5 border-r-2 border-b-2 border-[#D7BAA5] z-10" />
+                      <p className="absolute bottom-3 text-[10px] text-white/75 text-center uppercase tracking-widest z-10 px-2 bg-black/45 py-1 rounded-md">
                         {scanStatus}
                       </p>
                     </div>
 
                     {isScanningPhoto && (
-                      <div className="absolute inset-0 bg-black/90 flex flex-col justify-center items-center z-50">
-                        <div className="w-12 h-12 rounded-full border-4 border-[#7A8B7C] border-t-transparent animate-spin mb-4" />
-                        <p className="text-sm font-semibold tracking-wide text-[#F8F5F2]">Procesando codigo detectado...</p>
-                        <p className="text-[11px] text-white/50 mt-1">Cargando informacion del producto</p>
+                      <div className="absolute inset-0 bg-black/80 flex flex-col justify-center items-center z-50">
+                        <div className="relative mb-4">
+                          <div className="absolute inset-0 rounded-full bg-emerald-400/40 animate-ping" />
+                          <div className="relative w-14 h-14 rounded-full bg-emerald-500 flex items-center justify-center text-white shadow-lg shadow-emerald-500/30">
+                            <CheckCircle2 className="w-8 h-8" />
+                          </div>
+                        </div>
+                        <p className="text-sm font-semibold tracking-wide text-[#F8F5F2]">Codigo detectado</p>
+                        <p className="text-[11px] text-white/60 mt-1">Cargando informacion del producto</p>
                       </div>
                     )}
                   </div>
 
                   <div className="pb-6 flex flex-col items-center gap-4">
                     <span className="text-xs text-center text-white/70 max-w-xs">
-                      {scanError ? scanError : (lastScannedBarcode ? `Ultimo codigo: ${lastScannedBarcode}` : 'Apunta la camara trasera al codigo de barras del producto para ver el analisis.')}
+                      {scanError ? scanError : (lastScannedBarcode ? `Ultimo codigo: ${lastScannedBarcode}` : 'Manten el codigo completo dentro del marco, sin pegarlo a la camara.')}
                     </span>
                     
                     <button 
@@ -544,7 +577,7 @@ export default function App() {
               )}
 
               {/* View Rendering Logic */}
-              <div className="flex-1 overflow-y-auto pb-20">
+              <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain pb-[calc(6rem+env(safe-area-inset-bottom))] sm:pb-20">
                 {activeTab === 'escanear' && (
                   <div className="p-4 space-y-4">
                     
@@ -1061,41 +1094,42 @@ export default function App() {
                 )}
               </div>
 
-              {/* FLOATING bottom navigation tab bar (Pristine tactile button layout) */}
-              <div className="absolute bottom-0 inset-x-0 bg-white border-t border-[#F2EDE9] px-6 py-2.5 flex justify-between items-center z-45 shadow-lg">
-                {[
-                  { id: 'escanear', icon: Scan, label: 'Lector' },
-                  { id: 'perfil', icon: User, label: 'Mi Filtro' },
-                  { id: 'glosario', icon: BookOpen, label: 'Glosario' },
-                  { id: 'historial', icon: History, label: 'Historial' }
-                ].map((tab) => {
-                  const IconComp = tab.icon;
-                  const isSelected = activeTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      id={`nav-tab-${tab.id}`}
-                      onClick={() => {
-                        setActiveTab(tab.id as any);
-                      }}
-                      className="flex flex-col items-center gap-1 cursor-pointer group focus:outline-none"
-                    >
-                      <div className={`p-1.5 rounded-full transition-all duration-300 ${
-                        isSelected 
-                          ? 'bg-[#7A8B7C] text-[#F8F5F2] scale-110 shadow-sm shadow-[#7A8B7C]/25' 
-                          : 'text-[#433F3E]/60 group-hover:text-[#7A8B7C]'
-                      }`}>
-                        <IconComp className="w-4.5 h-4.5" />
-                      </div>
-                      <span className={`text-[9px] font-bold tracking-wide transition-colors ${
-                        isSelected ? 'text-[#7A8B7C]' : 'text-[#433F3E]/60'
-                      }`}>
-                        {tab.label}
-                      </span>
-                    </button>
-                  );
-                })}
-              </div>
+              {!showCamera && (
+                <div className="fixed sm:absolute bottom-0 left-0 right-0 mx-auto w-full max-w-md sm:max-w-none bg-white border-t border-[#F2EDE9] px-6 pt-2.5 pb-[calc(0.625rem+env(safe-area-inset-bottom))] sm:pb-2.5 flex justify-between items-center z-50 shadow-lg">
+                  {[
+                    { id: 'escanear', icon: Scan, label: 'Lector' },
+                    { id: 'perfil', icon: User, label: 'Mi Filtro' },
+                    { id: 'glosario', icon: BookOpen, label: 'Glosario' },
+                    { id: 'historial', icon: History, label: 'Historial' }
+                  ].map((tab) => {
+                    const IconComp = tab.icon;
+                    const isSelected = activeTab === tab.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        id={`nav-tab-${tab.id}`}
+                        onClick={() => {
+                          setActiveTab(tab.id as any);
+                        }}
+                        className="flex flex-col items-center gap-1 cursor-pointer group focus:outline-none"
+                      >
+                        <div className={`p-1.5 rounded-full transition-all duration-300 ${
+                          isSelected 
+                            ? 'bg-[#7A8B7C] text-[#F8F5F2] scale-110 shadow-sm shadow-[#7A8B7C]/25' 
+                            : 'text-[#433F3E]/60 group-hover:text-[#7A8B7C]'
+                        }`}>
+                          <IconComp className="w-4.5 h-4.5" />
+                        </div>
+                        <span className={`text-[9px] font-bold tracking-wide transition-colors ${
+                          isSelected ? 'text-[#7A8B7C]' : 'text-[#433F3E]/60'
+                        }`}>
+                          {tab.label}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
 
             </div>
 
