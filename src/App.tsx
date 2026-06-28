@@ -43,6 +43,7 @@ const DEFAULT_SCANNED_PRODUCT = PRODUCT_CATALOG[0];
 const AUTH_STORAGE_KEY = 'nutriscan_auth_session';
 const HISTORY_STORAGE_KEY = 'nutriscan_scanned_history';
 const LEGACY_HISTORY_STORAGE_KEY = 'oasis_scanned_history';
+const CAMERA_STORAGE_KEY = 'nutriscan_selected_camera_id';
 const PRODUCT_BADGES: Record<string, string> = {
   cocacola: 'CC',
   incakola: 'IK',
@@ -125,6 +126,9 @@ export default function App() {
   const [isTorchSupported, setIsTorchSupported] = useState(false);
   const [isTorchOn, setIsTorchOn] = useState(false);
   const [isGalleryDecoding, setIsGalleryDecoding] = useState(false);
+  const [videoDevices, setVideoDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState(() => localStorage.getItem(CAMERA_STORAGE_KEY) ?? '');
+  const [currentCameraId, setCurrentCameraId] = useState('');
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
@@ -292,6 +296,61 @@ export default function App() {
     return stream.getVideoTracks()[0] ?? null;
   };
 
+  const getCameraLabel = (device: MediaDeviceInfo, index: number) => {
+    if (device.label) return device.label;
+    return `Camara ${index + 1}`;
+  };
+
+  const getCurrentCameraLabel = () => {
+    const index = videoDevices.findIndex((device) => device.deviceId === currentCameraId);
+    if (index < 0) return null;
+    return getCameraLabel(videoDevices[index], index);
+  };
+
+  const refreshVideoDevices = async () => {
+    try {
+      const devices = await BrowserMultiFormatReader.listVideoInputDevices();
+      setVideoDevices(devices);
+
+      if (selectedCameraId && !devices.some((device) => device.deviceId === selectedCameraId)) {
+        setSelectedCameraId('');
+        localStorage.removeItem(CAMERA_STORAGE_KEY);
+      }
+
+      return devices;
+    } catch (error) {
+      console.debug('No se pudo listar camaras', error);
+      return [];
+    }
+  };
+
+  const syncActiveCameraId = () => {
+    const deviceId = getActiveVideoTrack()?.getSettings?.().deviceId;
+    setCurrentCameraId(deviceId ?? '');
+  };
+
+  const handleCameraDeviceChange = (event: React.ChangeEvent<HTMLSelectElement>) => {
+    const nextCameraId = event.target.value;
+    clearCameraOptimizationTimer();
+    scannerControlsRef.current?.stop();
+    scannerControlsRef.current = null;
+    isHandlingScanRef.current = false;
+    setIsScanningPhoto(false);
+    setIsGalleryDecoding(false);
+    setScanError(null);
+    setScanStatus(nextCameraId ? 'Cambiando camara...' : 'Activando camara automatica...');
+    setCameraAssistStatus(nextCameraId ? 'Probando camara seleccionada...' : 'Seleccion automatica activada');
+    setIsTorchSupported(false);
+    setIsTorchOn(false);
+    setSelectedCameraId(nextCameraId);
+
+    if (nextCameraId) {
+      localStorage.setItem(CAMERA_STORAGE_KEY, nextCameraId);
+    } else {
+      localStorage.removeItem(CAMERA_STORAGE_KEY);
+    }
+  };
+
   const clearCameraOptimizationTimer = () => {
     if (cameraOptimizationTimerRef.current !== null) {
       window.clearTimeout(cameraOptimizationTimerRef.current);
@@ -433,6 +492,7 @@ export default function App() {
     setLastScannedBarcode(null);
     setIsTorchSupported(false);
     setIsTorchOn(false);
+    setCurrentCameraId('');
     isHandlingScanRef.current = false;
   };
 
@@ -447,6 +507,7 @@ export default function App() {
     setCameraAssistStatus(null);
     setIsTorchSupported(false);
     setIsTorchOn(false);
+    setCurrentCameraId('');
     isHandlingScanRef.current = false;
   };
 
@@ -462,6 +523,7 @@ export default function App() {
     setCameraAssistStatus(null);
     setIsTorchSupported(false);
     setIsTorchOn(false);
+    setCurrentCameraId('');
     setCurrentResult(null);
     setActiveTab('escanear');
   };
@@ -495,6 +557,7 @@ export default function App() {
     const startScanner = async () => {
       try {
         const reader = createBarcodeReader();
+        await refreshVideoDevices();
 
         const rearCameraConstraints: MediaStreamConstraints = {
           audio: false,
@@ -518,23 +581,44 @@ export default function App() {
           }
         };
 
-        try {
-          const controls = await reader.decodeFromConstraints(rearCameraConstraints, videoRef.current ?? undefined, onDecode);
+        const activateScanner = async (controls: IScannerControls) => {
           if (cancelled) {
             controls.stop();
             return;
           }
 
           scannerControlsRef.current = controls;
+          void refreshVideoDevices();
+          syncActiveCameraId();
           setScanStatus('Buscando codigo de barras...');
           setCameraAssistStatus('Ajustando enfoque...');
           clearCameraOptimizationTimer();
           cameraOptimizationTimerRef.current = window.setTimeout(() => {
+            syncActiveCameraId();
             if (!cancelled) void optimizeActiveCamera(false, false);
           }, 600);
+        };
+
+        try {
+          if (selectedCameraId) {
+            const controls = await reader.decodeFromVideoDevice(selectedCameraId, videoRef.current ?? undefined, onDecode);
+            await activateScanner(controls);
+            return;
+          }
+
+          const controls = await reader.decodeFromConstraints(rearCameraConstraints, videoRef.current ?? undefined, onDecode);
+          await activateScanner(controls);
         } catch (primaryError) {
           const devices = await BrowserMultiFormatReader.listVideoInputDevices();
+          setVideoDevices(devices);
           if (cancelled) return;
+
+          if (selectedCameraId) {
+            setSelectedCameraId('');
+            localStorage.removeItem(CAMERA_STORAGE_KEY);
+            setCameraAssistStatus('No se pudo abrir esa camara, usando modo automatico...');
+            return;
+          }
 
           const rearCamera = devices.find((device) => /back|rear|environment|trasera|posterior/i.test(device.label)) ?? devices[devices.length - 1];
 
@@ -543,18 +627,7 @@ export default function App() {
           }
 
           const controls = await reader.decodeFromVideoDevice(rearCamera.deviceId, videoRef.current ?? undefined, onDecode);
-          if (cancelled) {
-            controls.stop();
-            return;
-          }
-
-          scannerControlsRef.current = controls;
-          setScanStatus('Buscando codigo de barras...');
-          setCameraAssistStatus('Ajustando enfoque...');
-          clearCameraOptimizationTimer();
-          cameraOptimizationTimerRef.current = window.setTimeout(() => {
-            if (!cancelled) void optimizeActiveCamera(false, false);
-          }, 600);
+          await activateScanner(controls);
           console.debug('Rear camera constraints fallback used', primaryError);
         }
       } catch (error) {
@@ -576,9 +649,10 @@ export default function App() {
       setIsTorchSupported(false);
       setIsTorchOn(false);
       setIsGalleryDecoding(false);
+      setCurrentCameraId('');
       isHandlingScanRef.current = false;
     };
-  }, [showCamera]);
+  }, [showCamera, selectedCameraId]);
 
   if (!authSession) {
     return (
@@ -734,6 +808,31 @@ export default function App() {
                   </div>
 
                   <div className="pb-6 flex flex-col items-center gap-4">
+                    <div className="w-full max-w-[320px] space-y-1">
+                      <label className="block text-[9px] uppercase tracking-widest text-white/45 text-center">
+                        Camara
+                      </label>
+                      <select
+                        value={selectedCameraId}
+                        onChange={handleCameraDeviceChange}
+                        className="w-full h-9 rounded-full bg-white/10 border border-white/10 text-white text-[11px] font-semibold px-3 outline-none backdrop-blur"
+                      >
+                        <option className="text-slate-900" value="">
+                          Automatica
+                        </option>
+                        {videoDevices.map((device, index) => (
+                          <option className="text-slate-900" key={device.deviceId} value={device.deviceId}>
+                            {getCameraLabel(device, index)}
+                          </option>
+                        ))}
+                      </select>
+                      {getCurrentCameraLabel() && (
+                        <p className="text-[9px] text-white/45 text-center truncate">
+                          En uso: {getCurrentCameraLabel()}
+                        </p>
+                      )}
+                    </div>
+
                     <div className="flex items-center justify-center gap-2">
                       <button
                         onClick={handleOpenGallery}
