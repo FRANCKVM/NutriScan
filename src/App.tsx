@@ -29,6 +29,7 @@ import {
   Info,
   Apple,
   X,
+  Flashlight,
   LogOut
 } from 'lucide-react';
 import { HEALTH_CONDITIONS } from './data';
@@ -68,6 +69,26 @@ interface AuthSession {
   createdAt: number;
 }
 
+type CameraCapabilities = MediaTrackCapabilities & {
+  focusMode?: string[];
+  exposureMode?: string[];
+  whiteBalanceMode?: string[];
+  torch?: boolean;
+  zoom?: {
+    min: number;
+    max: number;
+    step?: number;
+  };
+};
+
+type CameraConstraintSet = MediaTrackConstraintSet & {
+  focusMode?: string;
+  exposureMode?: string;
+  whiteBalanceMode?: string;
+  torch?: boolean;
+  zoom?: number;
+};
+
 export default function App() {
   // Mobile app tabs
   const [activeTab, setActiveTab] = useState<'escanear' | 'perfil' | 'glosario' | 'historial'>('escanear');
@@ -100,9 +121,13 @@ export default function App() {
   const [scanStatus, setScanStatus] = useState('Listo para escanear');
   const [scanError, setScanError] = useState<string | null>(null);
   const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(null);
+  const [cameraAssistStatus, setCameraAssistStatus] = useState<string | null>(null);
+  const [isTorchSupported, setIsTorchSupported] = useState(false);
+  const [isTorchOn, setIsTorchOn] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
   const isHandlingScanRef = useRef(false);
+  const cameraOptimizationTimerRef = useRef<number | null>(null);
 
   // Load history from localStorage
   useEffect(() => {
@@ -228,6 +253,86 @@ export default function App() {
     return DEFAULT_SCANNED_PRODUCT;
   };
 
+  const getActiveVideoTrack = () => {
+    const stream = videoRef.current?.srcObject;
+    if (!(stream instanceof MediaStream)) return null;
+    return stream.getVideoTracks()[0] ?? null;
+  };
+
+  const clearCameraOptimizationTimer = () => {
+    if (cameraOptimizationTimerRef.current !== null) {
+      window.clearTimeout(cameraOptimizationTimerRef.current);
+      cameraOptimizationTimerRef.current = null;
+    }
+  };
+
+  const optimizeActiveCamera = async (torchEnabled = isTorchOn, manual = false) => {
+    const track = getActiveVideoTrack();
+
+    if (!track || track.readyState !== 'live') {
+      if (manual) setCameraAssistStatus('La camara aun se esta preparando');
+      return;
+    }
+
+    try {
+      const capabilities = (track.getCapabilities?.() ?? {}) as CameraCapabilities;
+      const advanced: CameraConstraintSet[] = [];
+      const focusModes = capabilities.focusMode ?? [];
+      const exposureModes = capabilities.exposureMode ?? [];
+      const whiteBalanceModes = capabilities.whiteBalanceMode ?? [];
+      const supportsTorch = capabilities.torch === true;
+
+      setIsTorchSupported(supportsTorch);
+
+      if (focusModes.includes('continuous')) {
+        advanced.push({ focusMode: 'continuous' });
+      } else if (focusModes.includes('single-shot')) {
+        advanced.push({ focusMode: 'single-shot' });
+      }
+
+      if (exposureModes.includes('continuous')) {
+        advanced.push({ exposureMode: 'continuous' });
+      }
+
+      if (whiteBalanceModes.includes('continuous')) {
+        advanced.push({ whiteBalanceMode: 'continuous' });
+      }
+
+      if (capabilities.zoom && capabilities.zoom.max > capabilities.zoom.min) {
+        const targetZoom = Math.min(capabilities.zoom.max, Math.max(capabilities.zoom.min, 1.15));
+        if (targetZoom > capabilities.zoom.min) {
+          advanced.push({ zoom: targetZoom });
+        }
+      }
+
+      if (supportsTorch) {
+        advanced.push({ torch: torchEnabled });
+      }
+
+      if (!advanced.length) {
+        setCameraAssistStatus(manual ? 'Este navegador no permite ajustar el enfoque' : null);
+        return;
+      }
+
+      await track.applyConstraints({ advanced: advanced as MediaTrackConstraintSet[] });
+      setIsTorchOn(supportsTorch ? torchEnabled : false);
+      setCameraAssistStatus(manual ? 'Enfoque reajustado' : 'Enfoque continuo activo');
+    } catch (error) {
+      console.debug('No se pudo ajustar el enfoque de la camara', error);
+      if (manual) {
+        setCameraAssistStatus('El navegador no permitio ajustar el enfoque');
+      }
+    }
+  };
+
+  const handleRefocusCamera = () => {
+    void optimizeActiveCamera(isTorchOn, true);
+  };
+
+  const handleToggleTorch = () => {
+    void optimizeActiveCamera(!isTorchOn, true);
+  };
+
   const handleAnalyze = async () => {
 
     setIsLoading(true);
@@ -253,30 +358,42 @@ export default function App() {
   };
 
   const triggerCameraScan = () => {
+    clearCameraOptimizationTimer();
     setShowCamera(true);
     setScanError(null);
     setScanStatus('Solicitando acceso a la camara trasera...');
+    setCameraAssistStatus('Preparando enfoque...');
     setIsScanningPhoto(false);
     setLastScannedBarcode(null);
+    setIsTorchSupported(false);
+    setIsTorchOn(false);
     isHandlingScanRef.current = false;
   };
 
   const stopCameraScan = () => {
+    clearCameraOptimizationTimer();
     scannerControlsRef.current?.stop();
     scannerControlsRef.current = null;
     setShowCamera(false);
     setIsScanningPhoto(false);
     setScanStatus('Escaner detenido');
+    setCameraAssistStatus(null);
+    setIsTorchSupported(false);
+    setIsTorchOn(false);
     isHandlingScanRef.current = false;
   };
 
   const handleLogout = () => {
+    clearCameraOptimizationTimer();
     scannerControlsRef.current?.stop();
     scannerControlsRef.current = null;
     localStorage.removeItem(AUTH_STORAGE_KEY);
     setAuthSession(null);
     setShowCamera(false);
     setIsScanningPhoto(false);
+    setCameraAssistStatus(null);
+    setIsTorchSupported(false);
+    setIsTorchOn(false);
     setCurrentResult(null);
     setActiveTab('escanear');
   };
@@ -320,8 +437,8 @@ export default function App() {
           audio: false,
           video: {
             facingMode: { ideal: 'environment' },
-            width: { ideal: 1280 },
-            height: { ideal: 720 },
+            width: { min: 640, ideal: 1920 },
+            height: { min: 480, ideal: 1080 },
             frameRate: { ideal: 30 },
             advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet]
           }
@@ -363,6 +480,11 @@ export default function App() {
 
           scannerControlsRef.current = controls;
           setScanStatus('Buscando codigo de barras...');
+          setCameraAssistStatus('Ajustando enfoque...');
+          clearCameraOptimizationTimer();
+          cameraOptimizationTimerRef.current = window.setTimeout(() => {
+            if (!cancelled) void optimizeActiveCamera(false, false);
+          }, 600);
         } catch (primaryError) {
           const devices = await BrowserMultiFormatReader.listVideoInputDevices();
           if (cancelled) return;
@@ -381,6 +503,11 @@ export default function App() {
 
           scannerControlsRef.current = controls;
           setScanStatus('Buscando codigo de barras...');
+          setCameraAssistStatus('Ajustando enfoque...');
+          clearCameraOptimizationTimer();
+          cameraOptimizationTimerRef.current = window.setTimeout(() => {
+            if (!cancelled) void optimizeActiveCamera(false, false);
+          }, 600);
           console.debug('Rear camera constraints fallback used', primaryError);
         }
       } catch (error) {
@@ -396,8 +523,11 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      clearCameraOptimizationTimer();
       scannerControlsRef.current?.stop();
       scannerControlsRef.current = null;
+      setIsTorchSupported(false);
+      setIsTorchOn(false);
       isHandlingScanRef.current = false;
     };
   }, [showCamera]);
@@ -538,6 +668,36 @@ export default function App() {
                   </div>
 
                   <div className="pb-6 flex flex-col items-center gap-4">
+                    <div className="flex items-center justify-center gap-2">
+                      <button
+                        onClick={handleRefocusCamera}
+                        className="h-9 px-3 rounded-full bg-white/10 border border-white/10 text-white/80 backdrop-blur text-[11px] font-semibold flex items-center gap-1.5 active:scale-95 transition-transform"
+                      >
+                        <Camera className="w-3.5 h-3.5" />
+                        Enfocar
+                      </button>
+
+                      {isTorchSupported && (
+                        <button
+                          onClick={handleToggleTorch}
+                          className={`h-9 px-3 rounded-full border text-[11px] font-semibold flex items-center gap-1.5 active:scale-95 transition-transform ${
+                            isTorchOn
+                              ? 'bg-[#D7BAA5] border-[#D7BAA5] text-slate-950'
+                              : 'bg-white/10 border-white/10 text-white/80 backdrop-blur'
+                          }`}
+                        >
+                          <Flashlight className="w-3.5 h-3.5" />
+                          Luz
+                        </button>
+                      )}
+                    </div>
+
+                    {cameraAssistStatus && (
+                      <span className="text-[10px] uppercase tracking-widest text-[#D7BAA5]/85 text-center">
+                        {cameraAssistStatus}
+                      </span>
+                    )}
+
                     <span className="text-xs text-center text-white/70 max-w-xs">
                       {scanError ? scanError : (lastScannedBarcode ? `Ultimo codigo: ${lastScannedBarcode}` : 'Manten el codigo completo dentro del marco, sin pegarlo a la camara.')}
                     </span>
