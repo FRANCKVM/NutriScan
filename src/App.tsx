@@ -28,6 +28,7 @@ import {
   BookOpen, 
   Info,
   Apple,
+  X,
   LogOut
 } from 'lucide-react';
 import { HEALTH_CONDITIONS } from './data';
@@ -39,6 +40,8 @@ import AdditiveGlossary from './components/AdditiveGlossary';
 const PRODUCT_CATALOG: ProductPreset[] = productsData.products as ProductPreset[];
 const DEFAULT_SCANNED_PRODUCT = PRODUCT_CATALOG[0];
 const AUTH_STORAGE_KEY = 'nutriscan_auth_session';
+const HISTORY_STORAGE_KEY = 'nutriscan_scanned_history';
+const LEGACY_HISTORY_STORAGE_KEY = 'oasis_scanned_history';
 const PRODUCT_BADGES: Record<string, string> = {
   cocacola: 'CC',
   incakola: 'IK',
@@ -79,7 +82,7 @@ export default function App() {
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [scannedHistory, setScannedHistory] = useState<ScannedHistoryItem[]>([]);
   
-  // EscÃƒÂ¡ner de cÃƒÂ³digos de barras en frontend
+  // Escaner de codigos de barras en frontend
   const [showCamera, setShowCamera] = useState(false);
   const [isScanningPhoto, setIsScanningPhoto] = useState(false);
   const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
@@ -88,13 +91,22 @@ export default function App() {
   const [lastScannedBarcode, setLastScannedBarcode] = useState<string | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const scannerControlsRef = useRef<IScannerControls | null>(null);
+  const isHandlingScanRef = useRef(false);
 
   // Load history from localStorage
   useEffect(() => {
     try {
-      const stored = localStorage.getItem('oasis_scanned_history');
+      const stored = localStorage.getItem(HISTORY_STORAGE_KEY) ?? localStorage.getItem(LEGACY_HISTORY_STORAGE_KEY);
       if (stored) {
-        setScannedHistory(JSON.parse(stored));
+        const parsed = JSON.parse(stored) as ScannedHistoryItem[];
+        if (Array.isArray(parsed)) {
+          setScannedHistory(parsed);
+
+          if (!localStorage.getItem(HISTORY_STORAGE_KEY)) {
+            localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(parsed));
+            localStorage.removeItem(LEGACY_HISTORY_STORAGE_KEY);
+          }
+        }
       }
     } catch (e) {
       console.error("Error reading scanned history from localStorage", e);
@@ -112,7 +124,7 @@ export default function App() {
     };
     setScannedHistory((prev) => {
       const updated = [newItem, ...prev.slice(0, 19)];
-      localStorage.setItem('oasis_scanned_history', JSON.stringify(updated));
+      localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
       return updated;
     });
   };
@@ -121,13 +133,14 @@ export default function App() {
     e.stopPropagation();
     const updated = scannedHistory.filter(item => item.id !== id);
     setScannedHistory(updated);
-    localStorage.setItem('oasis_scanned_history', JSON.stringify(updated));
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(updated));
   };
 
   const clearAllHistory = () => {
-    if (window.confirm("Ã‚Â¿Seguro que deseas borrar todo tu historial de escaneos?")) {
+    if (window.confirm("Seguro que deseas borrar todo tu historial de escaneos?")) {
       setScannedHistory([]);
-      localStorage.removeItem('oasis_scanned_history');
+      localStorage.removeItem(HISTORY_STORAGE_KEY);
+      localStorage.removeItem(LEGACY_HISTORY_STORAGE_KEY);
     }
   };
 
@@ -168,7 +181,7 @@ export default function App() {
 
   const applyProduct = (product: ProductPreset) => {
     const tailoredWarnings = product.analysis.personalizedWarnings.filter((warning) => {
-      const words = warning.condition.toLowerCase();
+      const words = warning.condition.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
       return activeConditions.some((condition) => {
         if (condition === 'diabetes' && words.includes('diab')) return true;
         if (condition === 'hypertension' && (words.includes('hiper') || words.includes('presio') || words.includes('sodi'))) return true;
@@ -176,7 +189,7 @@ export default function App() {
         if (condition === 'celiac' && (words.includes('gluten') || words.includes('celi'))) return true;
         if (condition === 'lactose' && (words.includes('lacto') || words.includes('leche'))) return true;
         if (condition === 'vegan' && (words.includes('vega') || words.includes('anim'))) return true;
-        if (condition === 'child' && (words.includes('niÃƒÂ±') || words.includes('infan') || words.includes('tartr'))) return true;
+        if (condition === 'child' && (words.includes('nin') || words.includes('infan') || words.includes('tartr'))) return true;
         if (condition === 'athlete' && (words.includes('depor') || words.includes('atlet') || words.includes('rendi') || words.includes('prote'))) return true;
         return false;
       }) || warning.severity === 'info';
@@ -188,7 +201,7 @@ export default function App() {
         {
           condition: 'General',
           severity: 'info',
-          message: 'No se detectaron riesgos crÃƒÂ­ticos especÃƒÂ­ficos para tu configuraciÃƒÂ³n de salud actual.'
+          message: 'No se detectaron riesgos criticos especificos para tu configuracion de salud actual.'
         }
       ]
     };
@@ -231,8 +244,9 @@ export default function App() {
   const triggerCameraScan = () => {
     setShowCamera(true);
     setScanError(null);
-    setScanStatus('Solicitando acceso a la cÃƒÂ¡mara...');
+    setScanStatus('Solicitando acceso a la camara trasera...');
     setIsScanningPhoto(false);
+    isHandlingScanRef.current = false;
   };
 
   const stopCameraScan = () => {
@@ -240,7 +254,8 @@ export default function App() {
     scannerControlsRef.current = null;
     setShowCamera(false);
     setIsScanningPhoto(false);
-    setScanStatus('EscÃƒÂ¡ner detenido');
+    setScanStatus('Escaner detenido');
+    isHandlingScanRef.current = false;
   };
 
   const handleLogout = () => {
@@ -283,21 +298,23 @@ export default function App() {
     const startScanner = async () => {
       try {
         const reader = new BrowserMultiFormatReader();
+        const rearCameraConstraints: MediaStreamConstraints = {
+          audio: false,
+          video: {
+            facingMode: { ideal: 'environment' },
+            width: { ideal: 1280 },
+            height: { ideal: 720 }
+          }
+        };
 
-        const devices = await BrowserMultiFormatReader.listVideoInputDevices();
-        if (cancelled) return;
-
-        if (!devices.length) {
-          throw new Error('No se encontrÃƒÂ³ una cÃƒÂ¡mara disponible.');
-        }
-
-        const controls = await reader.decodeFromVideoDevice(devices[0].deviceId, videoRef.current ?? undefined, (result, error) => {
+        const onDecode = (result: any, error: any) => {
           if (cancelled) return;
 
-          if (result) {
+          if (result && !isHandlingScanRef.current) {
+            isHandlingScanRef.current = true;
             const barcode = result.getText();
             setLastScannedBarcode(barcode);
-            setScanStatus(`CÃƒÂ³digo detectado: ${barcode}`);
+            setScanStatus(`Codigo detectado: ${barcode}`);
             setIsScanningPhoto(true);
 
             const selectedProduct = getGenericScannedProduct();
@@ -315,15 +332,42 @@ export default function App() {
           } else if (error && error.name !== 'NotFoundException') {
             console.debug(error);
           }
-        });
+        };
 
-        scannerControlsRef.current = controls;
-        setScanStatus('Apunta la cÃƒÂ¡mara al cÃƒÂ³digo de barras');
+        try {
+          const controls = await reader.decodeFromConstraints(rearCameraConstraints, videoRef.current ?? undefined, onDecode);
+          if (cancelled) {
+            controls.stop();
+            return;
+          }
+
+          scannerControlsRef.current = controls;
+          setScanStatus('Apunta la camara trasera al codigo de barras');
+        } catch (primaryError) {
+          const devices = await BrowserMultiFormatReader.listVideoInputDevices();
+          if (cancelled) return;
+
+          const rearCamera = devices.find((device) => /back|rear|environment|trasera|posterior/i.test(device.label)) ?? devices[devices.length - 1];
+
+          if (!rearCamera) {
+            throw new Error('No se encontro una camara disponible.');
+          }
+
+          const controls = await reader.decodeFromVideoDevice(rearCamera.deviceId, videoRef.current ?? undefined, onDecode);
+          if (cancelled) {
+            controls.stop();
+            return;
+          }
+
+          scannerControlsRef.current = controls;
+          setScanStatus('Apunta la camara al codigo de barras');
+          console.debug('Rear camera constraints fallback used', primaryError);
+        }
       } catch (error) {
         if (!cancelled) {
-          const message = error instanceof Error ? error.message : 'No se pudo iniciar el escÃƒÂ¡ner.';
+          const message = error instanceof Error ? error.message : 'No se pudo iniciar el escaner.';
           setScanError(message);
-          setScanStatus('No se pudo iniciar el escÃƒÂ¡ner');
+          setScanStatus('No se pudo iniciar el escaner');
         }
       }
     };
@@ -334,6 +378,7 @@ export default function App() {
       cancelled = true;
       scannerControlsRef.current?.stop();
       scannerControlsRef.current = null;
+      isHandlingScanRef.current = false;
     };
   }, [showCamera]);
 
@@ -418,7 +463,7 @@ export default function App() {
             {/* Mobile View Screen Container */}
             <div className="flex-1 overflow-hidden flex flex-col relative bg-[#F8F5F2]">
               
-              {/* EscÃƒÂ¡ner de cÃƒÂ³digos de barras en vivo */}
+              {/* Escaner de codigos de barras en vivo */}
               {showCamera && (
                 <div className="absolute inset-0 bg-black z-50 flex flex-col justify-between p-4 pt-10 text-white">
                   <div className="flex justify-between items-center">
@@ -428,7 +473,7 @@ export default function App() {
                     >
                       Cancelar
                     </button>
-                    <span className="text-xs tracking-wider text-[#D7BAA5] font-bold uppercase">EscÃƒÂ¡ner Activo</span>
+                    <span className="text-xs tracking-wider text-[#D7BAA5] font-bold uppercase">Escaner activo</span>
                     <div className="w-10"></div>
                   </div>
 
@@ -442,6 +487,9 @@ export default function App() {
                         muted
                       />
                       <div className="absolute inset-0 border-[24px] border-black/20 rounded-[32px]" />
+                      {!isScanningPhoto && (
+                        <div className="absolute left-8 right-8 top-1/2 h-0.5 bg-[#D7BAA5] shadow-[0_0_18px_rgba(215,186,165,0.85)] animate-pulse z-10" />
+                      )}
                       <p className="absolute bottom-4 text-[10px] text-white/70 text-center uppercase tracking-widest z-10 px-2 bg-black/40 py-1 rounded-md">
                         {scanStatus}
                       </p>
@@ -450,15 +498,15 @@ export default function App() {
                     {isScanningPhoto && (
                       <div className="absolute inset-0 bg-black/90 flex flex-col justify-center items-center z-50">
                         <div className="w-12 h-12 rounded-full border-4 border-[#7A8B7C] border-t-transparent animate-spin mb-4" />
-                        <p className="text-sm font-semibold tracking-wide text-[#F8F5F2]">Procesando cÃƒÂ³digo detectado...</p>
-                        <p className="text-[11px] text-white/50 mt-1">Cargando informaciÃƒÂ³n del producto</p>
+                        <p className="text-sm font-semibold tracking-wide text-[#F8F5F2]">Procesando codigo detectado...</p>
+                        <p className="text-[11px] text-white/50 mt-1">Cargando informacion del producto</p>
                       </div>
                     )}
                   </div>
 
                   <div className="pb-6 flex flex-col items-center gap-4">
                     <span className="text-xs text-center text-white/70 max-w-xs">
-                      {scanError ? scanError : (lastScannedBarcode ? `ÃƒÅ¡ltimo cÃƒÂ³digo: ${lastScannedBarcode}` : 'Apunta la cÃƒÂ¡mara al cÃƒÂ³digo de barras del producto para ver el anÃƒÂ¡lisis.')}
+                      {scanError ? scanError : (lastScannedBarcode ? `Ultimo codigo: ${lastScannedBarcode}` : 'Apunta la camara trasera al codigo de barras del producto para ver el analisis.')}
                     </span>
                     
                     <button 
@@ -466,7 +514,7 @@ export default function App() {
                       className="w-16 h-16 rounded-full border-4 border-[#D7BAA5] p-1.5 focus:outline-none focus:scale-95 transition-transform"
                     >
                       <div className="w-full h-full bg-white rounded-full flex items-center justify-center text-slate-900 font-bold">
-                        Ã¢Å“â€¢
+                        <X className="w-6 h-6" />
                       </div>
                     </button>
                   </div>
@@ -529,11 +577,11 @@ export default function App() {
                           </div>
                         </div>
 
-                        {/* HIGH FIDELITY PERUVIAN OCTÃƒâ€œGONOS SYSTEM */}
+                        {/* Peruvian octogons system */}
                         <div className="bg-white border border-[#E0D8D0]/60 rounded-3xl p-4 shadow-xs">
                           <h3 className="text-xs font-bold uppercase tracking-wider text-[#433F3E]/60 mb-3 flex items-center gap-1.5">
                             <AlertTriangle className="w-4 h-4 text-[#D7BAA5]" />
-                            OctÃƒÂ³gonos Ley NÃ‚Â° 30021
+                            Octogonos Ley N. 30021
                           </h3>
 
                           {currentResult.octogons && currentResult.octogons.length > 0 ? (
@@ -561,7 +609,7 @@ export default function App() {
                               <div>
                                 <h4 className="text-xs font-bold text-emerald-800">Libre de Advertencias Publicitarias</h4>
                                 <p className="text-[10px] text-emerald-700 mt-0.5 leading-snug">
-                                  No supera los lÃƒÂ­mites de sodio, azÃƒÂºcar, grasas saturadas ni grasas trans dictados por el MINSA.
+                                  No supera los limites de sodio, azucar, grasas saturadas ni grasas trans dictados por el MINSA.
                                 </p>
                               </div>
                             </div>
@@ -571,7 +619,7 @@ export default function App() {
                         {/* NOVA PROCESSING LEVEL */}
                         <div className="bg-white border border-[#E0D8D0]/60 rounded-3xl p-4 shadow-xs">
                           <h4 className="text-xs font-bold uppercase tracking-wider text-[#433F3E]/60 mb-2.5">
-                            ClasificaciÃƒÂ³n de Procesamiento (NOVA)
+                            Clasificacion de Procesamiento (NOVA)
                           </h4>
 
                           <div className="space-y-3">
@@ -646,11 +694,11 @@ export default function App() {
 
                           <div className="grid grid-cols-3 gap-2">
                             {[
-                              { label: 'EnergÃƒÂ­a', val: currentResult.macronutrients.calories, bg: 'bg-[#F2EDE9]' },
-                              { label: 'AzÃƒÂºcares', val: currentResult.macronutrients.sugar, bg: 'bg-[#F2EDE9]' },
+                              { label: 'Energia', val: currentResult.macronutrients.calories, bg: 'bg-[#F2EDE9]' },
+                              { label: 'Azucares', val: currentResult.macronutrients.sugar, bg: 'bg-[#F2EDE9]' },
                               { label: 'Sodio', val: currentResult.macronutrients.sodium, bg: 'bg-[#F2EDE9]' },
                               { label: 'Grasas Sat.', val: currentResult.macronutrients.saturatedFat, bg: 'bg-[#F2EDE9]' },
-                              { label: 'ProteÃƒÂ­na', val: currentResult.macronutrients.protein || 'N/A', bg: 'bg-[#E0D8D0]/40' },
+                              { label: 'Proteina', val: currentResult.macronutrients.protein || 'N/A', bg: 'bg-[#E0D8D0]/40' },
                               { label: 'Carbohidratos', val: currentResult.macronutrients.carbohydrates || 'N/A', bg: 'bg-[#E0D8D0]/40' }
                             ].map((nut, index) => (
                               <div key={index} className={`${nut.bg} rounded-xl p-2.5 text-center`}>
@@ -665,7 +713,7 @@ export default function App() {
                         {currentResult.additives && currentResult.additives.length > 0 && (
                           <div className="bg-white border border-[#E0D8D0]/60 rounded-3xl p-4 shadow-xs">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-[#433F3E]/60 mb-2.5 flex justify-between items-center">
-                              <span>Aditivos e Ingredientes SintÃƒÂ©ticos</span>
+                              <span>Aditivos e Ingredientes Sinteticos</span>
                               <span className="text-[10px] bg-[#7A8B7C]/15 text-[#7A8B7C] font-semibold px-2 py-0.5 rounded-full">
                                 {currentResult.additives.length} detectado(s)
                               </span>
@@ -688,7 +736,7 @@ export default function App() {
                                     </span>
                                   </div>
                                   <p className="text-[10px] text-[#433F3E]/50 font-medium leading-none">
-                                    FunciÃƒÂ³n: {add.purpose}
+                                    Funcion: {add.purpose}
                                   </p>
                                   <p className="text-[10px] text-[#433F3E]/80 leading-relaxed pt-1 border-t border-dashed border-[#F2EDE9] mt-2">
                                     {add.explanation}
@@ -703,7 +751,7 @@ export default function App() {
                         <div className="bg-[#7A8B7C]/10 border border-[#7A8B7C]/40 rounded-3xl p-4 shadow-xs space-y-2">
                           <h4 className="text-xs font-bold text-[#7A8B7C] uppercase tracking-wider flex items-center gap-1.5">
                             <Sparkles className="w-4 h-4" />
-                            Oasis Recomienda
+                            NutriScan recomienda
                           </h4>
                           <p className="text-xs text-[#433F3E] leading-relaxed font-serif italic">
                             "{currentResult.recommendation}"
@@ -742,7 +790,7 @@ export default function App() {
                             </button>
                           </div>
                           <p className="text-xs text-[#433F3E]/70 leading-relaxed">
-                            Cuidamos tu salud traduciendo nomenclaturas de ingredientes difÃƒÂ­ciles.
+                            Cuidamos tu salud traduciendo ingredientes dificiles.
                           </p>
 
                           <div className="pt-2 flex flex-wrap gap-1.5">
@@ -765,7 +813,7 @@ export default function App() {
                                 onClick={() => setActiveTab('perfil')}
                                 className="text-[9px] bg-amber-50 text-amber-700 font-semibold px-2 py-0.5 rounded-full cursor-pointer hover:bg-amber-100 transition-all"
                               >
-                                Ã¢Å¡Â Ã¯Â¸Â Sin filtros de salud activos (Configurar)
+                                Sin filtros de salud activos (Configurar)
                               </span>
                             )}
                           </div>
@@ -780,7 +828,7 @@ export default function App() {
                             <Camera className="w-6 h-6 text-[#F8F5F2]" />
                             <div className="space-y-0.5">
                               <p className="text-xs font-bold">Escanear codigo</p>
-                              <p className="text-[9px] opacity-70">ZXing en navegador</p>
+                              <p className="text-[9px] opacity-70">Camara del telefono</p>
                             </div>
                           </button>
 
@@ -980,13 +1028,32 @@ export default function App() {
                         ))}
                       </div>
                     ) : (
-                      <div className="text-center py-16 space-y-3">
+                      <div className="text-center py-14 space-y-4">
                         <History className="w-10 h-10 text-slate-300 mx-auto" />
                         <div>
-                          <p className="text-sm font-medium text-slate-500">Ã‚Â¿AÃƒÂºn no has hecho consultas?</p>
-                          <p className="text-xs text-slate-400 max-w-[200px] mx-auto mt-1 leading-relaxed">
-                            AquÃƒÂ­ se guardarÃƒÂ¡n tus anÃƒÂ¡lisis recientes para acceso rÃƒÂ¡pido fuera de lÃƒÂ­nea.
+                          <p className="text-sm font-semibold text-slate-600">Aun no tienes consultas guardadas</p>
+                          <p className="text-xs text-slate-400 max-w-[220px] mx-auto mt-1 leading-relaxed">
+                            Escanea un producto o abre uno destacado para guardar aqui tus analisis recientes.
                           </p>
+                        </div>
+                        <div className="flex flex-col gap-2 max-w-[220px] mx-auto">
+                          <button
+                            onClick={() => setActiveTab('escanear')}
+                            className="bg-[#7A8B7C] text-white px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center justify-center gap-1.5"
+                          >
+                            <Scan className="w-3.5 h-3.5" />
+                            Ir al lector
+                          </button>
+                          <button
+                            onClick={() => {
+                              handleLoadPreset(DEFAULT_SCANNED_PRODUCT.id);
+                              setActiveTab('escanear');
+                            }}
+                            className="bg-white border border-[#E0D8D0] text-[#433F3E] px-4 py-2.5 rounded-2xl text-xs font-semibold flex items-center justify-center gap-1.5"
+                          >
+                            <Search className="w-3.5 h-3.5" />
+                            Ver producto destacado
+                          </button>
                         </div>
                       </div>
                     )}
