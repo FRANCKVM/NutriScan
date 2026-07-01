@@ -14,8 +14,6 @@
         "productName": "Coca-Cola Original 500 ml",
         "brand": "The Coca-Cola Company",
         "nutritionalSummary": "Bebida azucarada ultraprocesada con alto aporte de azucares libres y sin proteinas, fibra ni micronutrientes relevantes.",
-        "processingLevel": "NOVA 4 (Productos ultraprocesados)",
-        "processingExplanation": "Combina agua carbonatada con azucar refinada, colorante, acidulante, saborizantes y cafeina para lograr sabor, color y conservacion estable.",
         "macronutrients": {
           "calories": "210 kcal",
           "saturatedFat": "0 g",
@@ -94,8 +92,6 @@
         "productName": "Inca Kola Original 350 ml",
         "brand": "Lindley / Coca-Cola",
         "nutritionalSummary": "Bebida carbonatada con alto contenido de azucar, calorias vacias y aditivos sinteticos.",
-        "processingLevel": "NOVA 4 (Productos ultraprocesados)",
-        "processingExplanation": "Contiene azucares refinados disueltos en agua carbonatada, colorantes y conservantes para estabilidad y sabor.",
         "macronutrients": {
           "calories": "143 kcal",
           "saturatedFat": "0 g",
@@ -117,6 +113,12 @@
             "purpose": "Conservante",
             "simplifiedRisk": "Consumo moderado",
             "explanation": "Ayuda a prevenir crecimiento microbiano, pero conviene moderar su consumo frecuente."
+          },
+          {
+            "code": "E-330 (Acido Citrico)",
+            "purpose": "Acidulante",
+            "simplifiedRisk": "Riesgo bajo",
+            "explanation": "Regula la acidez y refuerza el sabor citrico. Puede irritar a personas sensibles si se consume con mucha frecuencia."
           },
           {
             "code": "Cafeina",
@@ -159,8 +161,6 @@
         "productName": "Chocolate Sublime Clasico",
         "brand": "Nestle Peru",
         "nutritionalSummary": "Golosina con azucares, grasas y calorias concentradas; aporta poca saciedad para su densidad energetica.",
-        "processingLevel": "NOVA 4 (Productos ultraprocesados)",
-        "processingExplanation": "Combina azucares, grasas, lacteos en polvo, saborizantes y emulsionantes industriales.",
         "macronutrients": {
           "calories": "162 kcal",
           "saturatedFat": "5.8 g",
@@ -182,6 +182,12 @@
             "purpose": "Emulsionante",
             "simplifiedRisk": "Consumo moderado",
             "explanation": "Mejora la textura del chocolate; se recomienda moderar ultraprocesados que lo incluyan."
+          },
+          {
+            "code": "Vainillina",
+            "purpose": "Saborizante",
+            "simplifiedRisk": "Riesgo bajo",
+            "explanation": "Aporta aroma a vainilla. No suele ser problematica aislada, pero aparece en productos dulces de consumo ocasional."
           }
         ],
         "personalizedWarnings": [
@@ -218,8 +224,6 @@
         "productName": "Galletas de Soda Field",
         "brand": "Mondelez Peru",
         "nutritionalSummary": "Galletas saladas con harina refinada y sodio elevado para una porcion pequena.",
-        "processingLevel": "NOVA 3 (Alimentos procesados)",
-        "processingExplanation": "Usa harina refinada, grasa vegetal, sal y agentes leudantes para textura y conservacion.",
         "macronutrients": {
           "calories": "135 kcal",
           "saturatedFat": "2.5 g",
@@ -241,6 +245,12 @@
             "purpose": "Agente leudante",
             "simplifiedRisk": "Riesgo bajo",
             "explanation": "Se usa para dar textura porosa y crocante."
+          },
+          {
+            "code": "E-322 (Lecitina de Soya)",
+            "purpose": "Emulsionante",
+            "simplifiedRisk": "Riesgo bajo",
+            "explanation": "Ayuda a integrar grasas y agua para mantener textura uniforme en galletas y masas."
           }
         ],
         "personalizedWarnings": [
@@ -272,8 +282,6 @@
         "productName": "Leche Evaporada Gloria Azul",
         "brand": "Grupo Gloria Peru",
         "nutritionalSummary": "Producto lacteo procesado con proteina y calcio, pero no apto para personas con intolerancia a la lactosa.",
-        "processingLevel": "NOVA 3 (Alimentos procesados)",
-        "processingExplanation": "La leche se concentra por evaporacion y se estabiliza para conservar textura y vida util.",
         "macronutrients": {
           "calories": "110 kcal",
           "saturatedFat": "3.8 g",
@@ -326,8 +334,6 @@
         "productName": "Papas Hojuelas Lays Clasicas",
         "brand": "PepsiCo Peru",
         "nutritionalSummary": "Snack frito con alta densidad calorica, grasas y sodio; bajo aporte de micronutrientes.",
-        "processingLevel": "NOVA 3 (Alimentos procesados)",
-        "processingExplanation": "La papa se frie industrialmente y se sala para mejorar textura, sabor y conservacion.",
         "macronutrients": {
           "calories": "160 kcal",
           "saturatedFat": "4.5 g",

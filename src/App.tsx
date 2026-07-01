@@ -77,15 +77,15 @@ const NATIVE_BARCODE_FORMATS = [
   'itf',
   'codabar'
 ];
-const CONDITION_KEYWORDS: Record<HealthConditionId, string[]> = {
-  diabetes: ['diab', 'gluc', 'azucar', 'glucem'],
-  hypertension: ['hiper', 'presion', 'sodi', 'cardio'],
-  pregnancy: ['emba', 'gest', 'cafeina'],
-  celiac: ['gluten', 'celiac', 'trigo', 'cebada', 'centeno'],
-  lactose: ['lacto', 'leche', 'lacteo', 'suero'],
-  vegan: ['vega', 'animal', 'leche', 'carm', 'gelatina', 'huevo'],
-  child: ['nin', 'infan', 'menor', 'tartr', 'colorante', 'cafeina'],
-  athlete: ['depor', 'atlet', 'rendi', 'prote', 'recuper']
+const CONDITION_WARNING_LABELS: Record<HealthConditionId, string[]> = {
+  diabetes: ['diabetes', 'control glucemico'],
+  hypertension: ['hipertension', 'presion arterial'],
+  pregnancy: ['embarazo', 'gestacion'],
+  celiac: ['alergia al gluten', 'gluten', 'celiaco', 'celiaca'],
+  lactose: ['intolerancia a la lactosa', 'lactosa'],
+  vegan: ['estilo vegano', 'vegano', 'vegan'],
+  child: ['nutricion infantil', 'infantil', 'menores', 'ninos', 'nino'],
+  athlete: ['rendimiento deportivo', 'atleta', 'deportivo']
 };
 
 interface AuthSession {
@@ -138,8 +138,12 @@ const parseAmount = (value?: string) => {
 };
 
 const warningMatchesCondition = (warning: PersonalizedWarning, condition: HealthConditionId) => {
-  const words = normalizeText(`${warning.condition} ${warning.message}`);
-  return CONDITION_KEYWORDS[condition].some((keyword) => words.includes(keyword));
+  const warningCondition = normalizeText(warning.condition);
+  return CONDITION_WARNING_LABELS[condition].some((label) => warningCondition.includes(normalizeText(label)));
+};
+
+const getConditionLabel = (conditionId: HealthConditionId) => {
+  return HEALTH_CONDITIONS.find((condition) => condition.id === conditionId)?.label ?? conditionId;
 };
 
 const addUniqueWarning = (warnings: PersonalizedWarning[], warning: PersonalizedWarning) => {
@@ -147,6 +151,11 @@ const addUniqueWarning = (warnings: PersonalizedWarning[], warning: Personalized
   if (!warnings.some((item) => normalizeText(`${item.condition}-${item.message}`) === key)) {
     warnings.push(warning);
   }
+};
+
+const hasWarningForCondition = (warnings: PersonalizedWarning[], conditionLabel: string) => {
+  const normalizedCondition = normalizeText(conditionLabel);
+  return warnings.some((warning) => normalizeText(warning.condition) === normalizedCondition);
 };
 
 const createDerivedWarnings = (product: ProductPreset, conditions: HealthConditionId[]) => {
@@ -257,25 +266,22 @@ const createDerivedWarnings = (product: ProductPreset, conditions: HealthConditi
 };
 
 const buildTailoredResult = (product: ProductPreset, conditions: HealthConditionId[]): AnalysisResult => {
-  const selectedWarnings = product.analysis.personalizedWarnings.filter((warning) => (
-    conditions.some((condition) => warningMatchesCondition(warning, condition))
-  ));
+  const selectedWarnings = product.analysis.personalizedWarnings.flatMap((warning) => {
+    const matchedCondition = conditions.find((condition) => warningMatchesCondition(warning, condition));
+    return matchedCondition ? [{ ...warning, condition: getConditionLabel(matchedCondition) }] : [];
+  });
   const derivedWarnings = createDerivedWarnings(product, conditions);
   const personalizedWarnings = [...selectedWarnings];
 
-  derivedWarnings.forEach((warning) => addUniqueWarning(personalizedWarnings, warning));
+  derivedWarnings.forEach((warning) => {
+    if (!hasWarningForCondition(personalizedWarnings, warning.condition)) {
+      addUniqueWarning(personalizedWarnings, warning);
+    }
+  });
 
   return {
     ...product.analysis,
-    personalizedWarnings: personalizedWarnings.length > 0 ? personalizedWarnings : [
-      {
-        condition: conditions.length > 0 ? 'Perfil de salud' : 'General',
-        severity: 'info',
-        message: conditions.length > 0
-          ? 'No se detectaron alertas criticas para los filtros seleccionados con la informacion disponible.'
-          : 'Activa restricciones u objetivos de salud para recibir alertas personalizadas.'
-      }
-    ]
+    personalizedWarnings
   };
 };
 
@@ -1107,6 +1113,10 @@ export default function App() {
     );
   }
 
+  const displayedPersonalizedWarnings = currentResult?.personalizedWarnings.filter((warning) => (
+    activeConditions.some((condition) => warningMatchesCondition(warning, condition))
+  )) ?? [];
+
   return (
     <div className="min-h-[100dvh] bg-[#F8F5F2] text-[#433F3E] flex flex-col justify-center items-center font-sans transition-colors duration-300 relative p-0 sm:p-4 overflow-hidden select-none">
       
@@ -1369,39 +1379,16 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* NOVA PROCESSING LEVEL */}
-                        <div className="bg-white border border-[#E0D8D0]/60 rounded-3xl p-4 shadow-xs">
-                          <h4 className="text-xs font-bold uppercase tracking-wider text-[#433F3E]/60 mb-2.5">
-                            Clasificacion de Procesamiento (NOVA)
-                          </h4>
-
-                          <div className="space-y-3">
-                            <div className="flex justify-between items-center bg-[#F2EDE9] p-3 rounded-2xl">
-                              <span className="text-xs font-semibold text-[#433F3E]">
-                                {currentResult.processingLevel}
-                              </span>
-                              <span className={`w-3.5 h-3.5 rounded-full ${
-                                currentResult.processingLevel.includes('4') ? 'bg-red-500 shadow shadow-red-500/25' :
-                                currentResult.processingLevel.includes('3') ? 'bg-yellow-500 shadow shadow-yellow-500/25' :
-                                currentResult.processingLevel.includes('2') ? 'bg-amber-500 shadow' : 'bg-emerald-500 shadow shadow-emerald-500/25'
-                              }`} />
-                            </div>
-                            <p className="text-[11px] text-[#433F3E]/80 leading-relaxed pl-1">
-                              {currentResult.processingExplanation}
-                            </p>
-                          </div>
-                        </div>
-
                         {/* PERSONALIZED WARNING ALERTS BY CUSTOMER PROFILE */}
-                        {currentResult.personalizedWarnings && currentResult.personalizedWarnings.length > 0 && (
+                        {displayedPersonalizedWarnings.length > 0 && (
                           <div className="bg-white border border-[#E0D8D0]/60 rounded-3xl p-4 shadow-xs">
                             <h3 className="text-xs font-bold uppercase tracking-wider text-[#433F3E]/60 mb-3 flex items-center gap-1.5">
                               <Scale className="w-4 h-4 text-[#7A8B7C]" />
-                              Alertas Personalizadas ({activeConditions.length})
+                              Alertas Personalizadas ({displayedPersonalizedWarnings.length})
                             </h3>
 
                             <div className="space-y-2.5">
-                              {currentResult.personalizedWarnings.map((war, idx) => {
+                              {displayedPersonalizedWarnings.map((war, idx) => {
                                 const isDanger = war.severity === 'danger';
                                 const isWarning = war.severity === 'warning';
                                 return (

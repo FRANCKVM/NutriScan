@@ -24,8 +24,6 @@ export interface AnalysisResult {
   productName: string;
   brand?: string;
   nutritionalSummary: string;
-  processingLevel: string;
-  processingExplanation: string;
   macronutrients: Macronutrients;
   octogons: string[];
   additives: Additive[];
